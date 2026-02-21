@@ -1,0 +1,1036 @@
+// Prisma Schema for FinanX ERP - QuickBooks Style
+// Day 1: Companies and Users (Basic RBAC)
+// Day 2: Roles, Permissions, and RBAC System
+// Day 7: Chart of Accounts
+// Day 8: Customers & Vendors
+// Day 9: Products & Services
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+enum ProductType {
+  INVENTORY
+  NON_INVENTORY
+  SERVICE
+  BUNDLE
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  VOID
+}
+
+enum BillStatus {
+  DRAFT
+  RECEIVED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  VOID
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum PaymentMethod {
+  CASH
+  CHECK
+  BANK_TRANSFER
+  CREDIT_CARD
+  OTHER
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// COMPANIES TABLE
+// =============================================================================
+model Company {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Identity
+  name       String  @db.VarChar(255)
+  legalName  String? @map("legal_name") @db.VarChar(255)
+  taxId      String? @map("tax_id") @db.VarChar(50)
+
+  // Business Info
+  industry    String? @db.VarChar(100)
+  companyType String? @map("company_type") @db.VarChar(50)
+
+  // Contact
+  email   String? @db.VarChar(255)
+  phone   String? @db.VarChar(50)
+  website String? @db.VarChar(255)
+
+  // Address
+  addressLine1 String? @map("address_line1") @db.VarChar(255)
+  addressLine2 String? @map("address_line2") @db.VarChar(255)
+  city         String? @db.VarChar(100)
+  state        String? @db.VarChar(100)
+  postalCode   String? @map("postal_code") @db.VarChar(20)
+  country      String  @default("US") @db.VarChar(2)
+
+  // Settings
+  fiscalYearEnd   DateTime? @map("fiscal_year_end") @db.Date
+  defaultCurrency String    @default("USD") @map("default_currency") @db.VarChar(3)
+  timezone        String    @default("America/New_York") @db.VarChar(50)
+  dateFormat      String    @default("MM/DD/YYYY") @map("date_format") @db.VarChar(20)
+
+  // Books
+  booksClosedThrough DateTime? @map("books_closed_through") @db.Date
+
+  // Status
+  isActive Boolean @default(true) @map("is_active")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  users           User[]
+  roles           Role[]
+  userInvitations UserInvitation[]
+  accounts        Account[]
+  customers       Customer[]
+  vendors         Vendor[]
+  categories      Category[]
+  unitsOfMeasure  UnitOfMeasure[]
+  products        Product[]
+  invoices        Invoice[]
+  bills           Bill[]
+
+  @@index([isActive], name: "idx_companies_active")
+  @@map("companies")
+}
+
+// =============================================================================
+// USERS TABLE
+// =============================================================================
+model User {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Company
+  companyId String @map("company_id") @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Authentication
+  email        String @db.VarChar(255)
+  passwordHash String @map("password_hash") @db.VarChar(255)
+
+  // Profile
+  firstName String? @map("first_name") @db.VarChar(100)
+  lastName  String? @map("last_name") @db.VarChar(100)
+  phone     String? @db.VarChar(50)
+  avatarUrl String? @map("avatar_url") @db.VarChar(500)
+
+  // Role
+  roleId String? @map("role_id") @db.Uuid
+  role   Role?   @relation(fields: [roleId], references: [id], onDelete: SetNull)
+
+  // Admin Flags
+  isPrimaryAdmin Boolean @default(false) @map("is_primary_admin")
+
+  // Preferences
+  timezone   String @default("America/New_York") @db.VarChar(50)
+  locale     String @default("en-US") @db.VarChar(10)
+  dateFormat String @default("MM/DD/YYYY") @map("date_format") @db.VarChar(20)
+
+  // Status
+  isActive             Boolean   @default(true) @map("is_active")
+  emailVerifiedAt      DateTime? @map("email_verified_at") @db.Timestamptz(6)
+  invitationAcceptedAt DateTime? @map("invitation_accepted_at") @db.Timestamptz(6)
+
+  // Security
+  failedLoginAttempts    Int       @default(0) @map("failed_login_attempts")
+  lockedUntil            DateTime? @map("locked_until") @db.Timestamptz(6)
+  passwordChangedAt      DateTime? @map("password_changed_at") @db.Timestamptz(6)
+  mustChangePassword     Boolean   @default(false) @map("must_change_password")
+  passwordResetToken     String?   @unique @map("password_reset_token") @db.VarChar(255)
+  passwordResetExpiresAt DateTime? @map("password_reset_expires_at") @db.Timestamptz(6)
+
+  // Tracking
+  lastLoginAt DateTime? @map("last_login_at") @db.Timestamptz(6)
+  lastLoginIp String?   @map("last_login_ip") @db.Inet
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  invitedBy String?  @map("invited_by") @db.Uuid
+
+  // Relations
+  refreshTokens        RefreshToken[]
+  invitationsSent      UserInvitation[] @relation("InvitedBy")
+  invitationsAccepted  UserInvitation[] @relation("AcceptedInvitations")
+
+  @@unique([companyId, email], name: "unique_company_email")
+  @@index([companyId], name: "idx_users_company")
+  @@index([email], name: "idx_users_email")
+  @@index([roleId], name: "idx_users_role")
+  @@index([companyId, isActive], name: "idx_users_active")
+  @@map("users")
+}
+
+// =============================================================================
+// REFRESH TOKENS TABLE
+// =============================================================================
+model RefreshToken {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId    String @map("user_id") @db.Uuid
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String @unique @map("token_hash") @db.VarChar(255)
+
+  // Device info
+  deviceName String? @map("device_name") @db.VarChar(100)
+  deviceType String? @map("device_type") @db.VarChar(50)
+  ipAddress  String? @map("ip_address") @db.Inet
+  userAgent  String? @map("user_agent") @db.Text
+
+  // Validity
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId], name: "idx_refresh_tokens_user")
+  @@index([tokenHash], name: "idx_refresh_tokens_token")
+  @@index([expiresAt], name: "idx_refresh_tokens_expires")
+  @@map("refresh_tokens")
+}
+
+// =============================================================================
+// ROLES TABLE (System-Defined + Company Custom Roles)
+// =============================================================================
+model Role {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Company (NULL for system roles, UUID for custom roles)
+  companyId String?  @map("company_id") @db.Uuid
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Identity
+  code        String @db.VarChar(50)
+  name        String @db.VarChar(100)
+  description String? @db.Text
+
+  // Requirements
+  isSystemRole Boolean @default(false) @map("is_system_role")
+  requiredPlan String? @map("required_plan") @db.VarChar(50)
+
+  // Display
+  displayOrder Int @default(0) @map("display_order")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  users           User[]
+  rolePermissions RolePermission[]
+  userInvitations UserInvitation[]
+
+  // Constraints: Code must be unique per company (NULL companyId for system roles)
+  @@unique([companyId, code], name: "unique_company_role_code")
+  @@index([code], name: "idx_roles_code")
+  @@index([companyId], name: "idx_roles_company")
+  @@index([isSystemRole], name: "idx_roles_system")
+  @@map("roles")
+}
+
+// =============================================================================
+// PERMISSIONS TABLE (System-Defined)
+// =============================================================================
+model Permission {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Identity
+  code        String  @unique @db.VarChar(100)
+  name        String  @db.VarChar(100)
+  description String? @db.Text
+
+  // Category (for grouping in UI)
+  category String? @db.VarChar(50)
+
+  // Required Feature (from subscription)
+  requiredFeature String? @map("required_feature") @db.VarChar(50)
+
+  // Display
+  displayOrder Int @default(0) @map("display_order")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  rolePermissions RolePermission[]
+
+  @@index([code], name: "idx_permissions_code")
+  @@index([category], name: "idx_permissions_category")
+  @@index([requiredFeature], name: "idx_permissions_feature")
+  @@map("permissions")
+}
+
+// =============================================================================
+// ROLE PERMISSIONS (Many-to-Many)
+// =============================================================================
+model RolePermission {
+  id String @id @default(uuid()) @db.Uuid
+
+  roleId       String     @map("role_id") @db.Uuid
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String     @map("permission_id") @db.Uuid
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Constraints
+  @@unique([roleId, permissionId], name: "unique_role_permission")
+  @@index([roleId], name: "idx_role_permissions_role")
+  @@index([permissionId], name: "idx_role_permissions_permission")
+  @@map("role_permissions")
+}
+
+// =============================================================================
+// USER INVITATIONS TABLE
+// =============================================================================
+model UserInvitation {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Company
+  companyId String  @map("company_id") @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Invitee Info
+  email     String @db.VarChar(255)
+  firstName String @map("first_name") @db.VarChar(100)
+  lastName  String @map("last_name") @db.VarChar(100)
+
+  // Role
+  roleId String @map("role_id") @db.Uuid
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  // Invitation Details
+  invitationToken String  @unique @map("invitation_token") @db.VarChar(255)
+  message         String? @db.Text
+
+  // Inviter
+  invitedBy   String @map("invited_by") @db.Uuid
+  invitedByUser User @relation("InvitedBy", fields: [invitedBy], references: [id], onDelete: Cascade)
+
+  // Status
+  status       String    @default("pending") @db.VarChar(20) // pending, accepted, expired, cancelled
+  acceptedAt   DateTime? @map("accepted_at") @db.Timestamptz(6)
+  acceptedByUserId String? @map("accepted_by_user_id") @db.Uuid
+  acceptedByUser   User?   @relation("AcceptedInvitations", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+
+  // Validity
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([companyId, email, status], name: "unique_pending_invitation")
+  @@index([companyId], name: "idx_invitations_company")
+  @@index([email], name: "idx_invitations_email")
+  @@index([invitationToken], name: "idx_invitations_token")
+  @@index([status], name: "idx_invitations_status")
+  @@index([expiresAt], name: "idx_invitations_expires")
+  @@map("user_invitations")
+}
+
+// =============================================================================
+// CHART OF ACCOUNTS (Day 7)
+// =============================================================================
+model Account {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Company
+  companyId String  @map("company_id") @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Identity
+  accountNumber String? @map("account_number") @db.VarChar(20)
+  name          String  @db.VarChar(255)
+  description   String? @db.Text
+
+  // Classification
+  accountType   String @map("account_type") @db.VarChar(50)   // e.g., "Bank", "Accounts Receivable", "Expenses"
+  detailType    String @map("detail_type") @db.VarChar(100)   // e.g., "Checking", "Savings", "Advertising"
+  normalBalance String @map("normal_balance") @db.VarChar(10) // "DEBIT" or "CREDIT"
+
+  // Hierarchy
+  parentAccountId String?   @map("parent_account_id") @db.Uuid
+  parentAccount   Account?  @relation("AccountHierarchy", fields: [parentAccountId], references: [id], onDelete: Restrict)
+  subAccounts     Account[] @relation("AccountHierarchy")
+  isSubAccount    Boolean   @default(false) @map("is_sub_account")
+  depth           Int       @default(0)
+  fullPath        String?   @map("full_path") @db.VarChar(500) // "Expenses > Office Expenses > Supplies"
+
+  // Balance
+  currentBalance Decimal @default(0) @map("current_balance") @db.Decimal(20, 4)
+
+  // Flags
+  isSystemAccount Boolean @default(false) @map("is_system_account") // Can't be deleted
+  isActive        Boolean @default(true) @map("is_active")
+
+  // Display
+  displayOrder Int @default(0) @map("display_order")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Product Relations
+  productIncomeAccounts         Product[] @relation("ProductIncomeAccount")
+  productExpenseAccounts        Product[] @relation("ProductExpenseAccount")
+  productInventoryAssetAccounts Product[] @relation("ProductInventoryAssetAccount")
+
+  // Invoice Relations
+  invoiceDepositAccounts  Invoice[]        @relation("InvoiceDepositAccount")
+  paymentDepositAccounts  InvoicePayment[] @relation("PaymentDepositAccount")
+
+  // Bill Relations
+  billPaymentAccounts        Bill[]          @relation("BillPaymentAccount")
+  billLineExpenseAccounts    BillLineItem[]  @relation("BillLineExpenseAccount")
+  billPaymentDepositAccounts BillPayment[]   @relation("BillPaymentDepositAccount")
+
+  @@unique([companyId, accountNumber], name: "unique_company_account_number")
+  @@unique([companyId, name, parentAccountId], name: "unique_company_account_name")
+  @@index([companyId], name: "idx_accounts_company")
+  @@index([companyId, accountType], name: "idx_accounts_type")
+  @@index([companyId, isActive], name: "idx_accounts_active")
+  @@index([parentAccountId], name: "idx_accounts_parent")
+  @@map("accounts")
+}
+
+// =============================================================================
+// CUSTOMERS TABLE (Day 8)
+// =============================================================================
+model Customer {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Company
+  companyId String  @map("company_id") @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Identity
+  customerType   String  @default("Business") @map("customer_type") @db.VarChar(20) // "Business" or "Individual"
+  displayName    String  @map("display_name") @db.VarChar(255) // Primary display name
+  companyName    String? @map("company_name") @db.VarChar(255)
+  firstName      String? @map("first_name") @db.VarChar(100)
+  lastName       String? @map("last_name") @db.VarChar(100)
+  middleName     String? @map("middle_name") @db.VarChar(100)
+  title          String? @db.VarChar(20) // Mr., Mrs., Dr., etc.
+  suffix         String? @db.VarChar(20) // Jr., Sr., III, etc.
+
+  // Contact
+  email       String? @db.VarChar(255)
+  phone       String? @db.VarChar(50)
+  mobile      String? @db.VarChar(50)
+  fax         String? @db.VarChar(50)
+  website     String? @db.VarChar(255)
+
+  // Billing Address
+  billingAddressLine1 String? @map("billing_address_line1") @db.VarChar(255)
+  billingAddressLine2 String? @map("billing_address_line2") @db.VarChar(255)
+  billingCity         String? @map("billing_city") @db.VarChar(100)
+  billingState        String? @map("billing_state") @db.VarChar(100)
+  billingPostalCode   String? @map("billing_postal_code") @db.VarChar(20)
+  billingCountry      String? @map("billing_country") @db.VarChar(2)
+
+  // Shipping Address
+  shippingAddressLine1 String? @map("shipping_address_line1") @db.VarChar(255)
+  shippingAddressLine2 String? @map("shipping_address_line2") @db.VarChar(255)
+  shippingCity         String? @map("shipping_city") @db.VarChar(100)
+  shippingState        String? @map("shipping_state") @db.VarChar(100)
+  shippingPostalCode   String? @map("shipping_postal_code") @db.VarChar(20)
+  shippingCountry      String? @map("shipping_country") @db.VarChar(2)
+
+  // Tax
+  taxNumber   String?  @map("tax_number") @db.VarChar(50)
+  taxExempt   Boolean  @default(false) @map("tax_exempt")
+
+  // Payment Terms
+  paymentTerms    String?  @map("payment_terms") @db.VarChar(50) // "Net 30", "Net 60", "Due on Receipt", etc.
+
+  // Financial
+  openingBalance     Decimal  @default(0) @map("opening_balance") @db.Decimal(20, 4)
+  openingBalanceDate DateTime? @map("opening_balance_date") @db.Date
+  currentBalance     Decimal  @default(0) @map("current_balance") @db.Decimal(20, 4)
+  creditLimit        Decimal? @map("credit_limit") @db.Decimal(20, 4)
+
+  // Notes
+  notes String? @db.Text
+
+  // Status
+  isActive Boolean @default(true) @map("is_active")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Invoice Relations
+  invoices Invoice[]
+
+  @@unique([companyId, displayName], name: "unique_company_customer_display_name")
+  @@unique([companyId, email], name: "unique_company_customer_email")
+  @@index([companyId], name: "idx_customers_company")
+  @@index([companyId, isActive], name: "idx_customers_active")
+  @@index([companyId, displayName], name: "idx_customers_display_name")
+  @@index([email], name: "idx_customers_email")
+  @@map("customers")
+}
+
+// =============================================================================
+// VENDORS TABLE (Day 8)
+// =============================================================================
+model Vendor {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Company
+  companyId String  @map("company_id") @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Identity
+  vendorType   String  @default("Business") @map("vendor_type") @db.VarChar(20) // "Business" or "Individual"
+  displayName  String  @map("display_name") @db.VarChar(255)
+  companyName  String? @map("company_name") @db.VarChar(255)
+  firstName    String? @map("first_name") @db.VarChar(100)
+  lastName     String? @map("last_name") @db.VarChar(100)
+  middleName   String? @map("middle_name") @db.VarChar(100)
+  title        String? @db.VarChar(20)
+  suffix       String? @db.VarChar(20)
+
+  // Contact
+  email       String? @db.VarChar(255)
+  phone       String? @db.VarChar(50)
+  mobile      String? @db.VarChar(50)
+  fax         String? @db.VarChar(50)
+  website     String? @db.VarChar(255)
+
+  // Address
+  addressLine1 String? @map("address_line1") @db.VarChar(255)
+  addressLine2 String? @map("address_line2") @db.VarChar(255)
+  city         String? @db.VarChar(100)
+  state        String? @db.VarChar(100)
+  postalCode   String? @map("postal_code") @db.VarChar(20)
+  country      String? @db.VarChar(2)
+
+  // Tax & Compliance
+  taxNumber       String?  @map("tax_number") @db.VarChar(50)
+  businessIdNo    String?  @map("business_id_no") @db.VarChar(50) // EIN or Business ID
+  track1099       Boolean  @default(false) @map("track_1099")
+
+  // Payment Terms
+  paymentTerms    String?  @map("payment_terms") @db.VarChar(50)
+
+  // Account
+  accountNumber   String?  @map("account_number") @db.VarChar(50) // Vendor's account number for us
+
+  // Financial
+  openingBalance     Decimal  @default(0) @map("opening_balance") @db.Decimal(20, 4)
+  openingBalanceDate DateTime? @map("opening_balance_date") @db.Date
+  currentBalance     Decimal  @default(0) @map("current_balance") @db.Decimal(20, 4)
+
+  // Notes
+  notes String? @db.Text
+
+  // Status
+  isActive Boolean @default(true) @map("is_active")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Product Relations
+  preferredByProducts Product[]
+
+  // Bill Relations
+  bills Bill[]
+
+  @@unique([companyId, displayName], name: "unique_company_vendor_display_name")
+  @@unique([companyId, email], name: "unique_company_vendor_email")
+  @@index([companyId], name: "idx_vendors_company")
+  @@index([companyId, isActive], name: "idx_vendors_active")
+  @@index([companyId, displayName], name: "idx_vendors_display_name")
+  @@index([email], name: "idx_vendors_email")
+  @@map("vendors")
+}
+
+// =============================================================================
+// CATEGORIES TABLE (Day 9)
+// =============================================================================
+model Category {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Company
+  companyId String  @map("company_id") @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Identity
+  name        String  @db.VarChar(255)
+  description String? @db.Text
+
+  // Hierarchy (max 3 levels)
+  parentId String?    @map("parent_id") @db.Uuid
+  parent   Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children Category[] @relation("CategoryHierarchy")
+  depth    Int        @default(0)
+  fullPath String?    @map("full_path") @db.VarChar(500)
+
+  // Status
+  isActive Boolean @default(true) @map("is_active")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  products Product[]
+
+  @@unique([companyId, name, parentId], name: "unique_company_category_name")
+  @@index([companyId], name: "idx_categories_company")
+  @@index([companyId, isActive], name: "idx_categories_active")
+  @@index([parentId], name: "idx_categories_parent")
+  @@map("categories")
+}
+
+// =============================================================================
+// UNITS OF MEASURE TABLE (Day 9)
+// =============================================================================
+model UnitOfMeasure {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Company (NULL = system default, UUID = company-custom)
+  companyId String?  @map("company_id") @db.Uuid
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Identity
+  name         String @db.VarChar(100)
+  abbreviation String @db.VarChar(20)
+
+  // Flags
+  isSystem Boolean @default(false) @map("is_system")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  products Product[]
+
+  @@index([companyId], name: "idx_uom_company")
+  @@map("units_of_measure")
+}
+
+// =============================================================================
+// PRODUCTS TABLE (Day 9)
+// =============================================================================
+model Product {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Company
+  companyId String  @map("company_id") @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Type
+  type ProductType @default(NON_INVENTORY)
+
+  // Identity
+  name    String  @db.VarChar(255)
+  sku     String? @db.VarChar(100)
+  barcode String? @db.VarChar(100)
+
+  // Category
+  categoryId String?   @map("category_id") @db.Uuid
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  // Descriptions
+  salesDescription    String? @map("sales_description") @db.Text
+  purchaseDescription String? @map("purchase_description") @db.Text
+
+  // Pricing
+  salesPrice   Decimal? @map("sales_price") @db.Decimal(20, 4)
+  purchaseCost Decimal? @map("purchase_cost") @db.Decimal(20, 4)
+
+  // Unit of Measure
+  unitOfMeasureId String?        @map("unit_of_measure_id") @db.Uuid
+  unitOfMeasure   UnitOfMeasure? @relation(fields: [unitOfMeasureId], references: [id], onDelete: SetNull)
+
+  // Account Links
+  incomeAccountId         String?  @map("income_account_id") @db.Uuid
+  incomeAccount           Account? @relation("ProductIncomeAccount", fields: [incomeAccountId], references: [id], onDelete: SetNull)
+  expenseAccountId        String?  @map("expense_account_id") @db.Uuid
+  expenseAccount          Account? @relation("ProductExpenseAccount", fields: [expenseAccountId], references: [id], onDelete: SetNull)
+  inventoryAssetAccountId String?  @map("inventory_asset_account_id") @db.Uuid
+  inventoryAssetAccount   Account? @relation("ProductInventoryAssetAccount", fields: [inventoryAssetAccountId], references: [id], onDelete: SetNull)
+
+  // Tax
+  taxable Boolean  @default(true)
+  taxRate Decimal? @map("tax_rate") @db.Decimal(5, 2)
+
+  // Inventory Tracking
+  trackInventory  Boolean  @default(false) @map("track_inventory")
+  quantityOnHand  Decimal  @default(0) @map("quantity_on_hand") @db.Decimal(20, 4)
+  reorderPoint    Decimal? @map("reorder_point") @db.Decimal(20, 4)
+  reorderQuantity Decimal? @map("reorder_quantity") @db.Decimal(20, 4)
+
+  // Preferred Vendor
+  preferredVendorId String? @map("preferred_vendor_id") @db.Uuid
+  preferredVendor   Vendor? @relation(fields: [preferredVendorId], references: [id], onDelete: SetNull)
+
+  // Image
+  imageUrl String? @map("image_url") @db.VarChar(500)
+
+  // Status
+  isActive Boolean @default(true) @map("is_active")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Bundle Relations
+  bundleItems       BundleItem[] @relation("BundleParent")
+  includedInBundles BundleItem[] @relation("BundleChild")
+
+  // Invoice Relations
+  invoiceLineItems InvoiceLineItem[]
+
+  // Bill Relations
+  billLineItems BillLineItem[]
+
+  @@unique([companyId, sku], name: "unique_company_product_sku")
+  @@unique([companyId, name], name: "unique_company_product_name")
+  @@index([companyId], name: "idx_products_company")
+  @@index([companyId, isActive], name: "idx_products_active")
+  @@index([companyId, type], name: "idx_products_type")
+  @@index([categoryId], name: "idx_products_category")
+  @@index([companyId, trackInventory], name: "idx_products_inventory")
+  @@index([barcode], name: "idx_products_barcode")
+  @@map("products")
+}
+
+// =============================================================================
+// BUNDLE ITEMS TABLE (Day 9)
+// =============================================================================
+model BundleItem {
+  id String @id @default(uuid()) @db.Uuid
+
+  // The bundle product (must have type=BUNDLE)
+  bundleId String  @map("bundle_id") @db.Uuid
+  bundle   Product @relation("BundleParent", fields: [bundleId], references: [id], onDelete: Cascade)
+
+  // The component product
+  productId String  @map("product_id") @db.Uuid
+  product   Product @relation("BundleChild", fields: [productId], references: [id], onDelete: Cascade)
+
+  // Quantity
+  quantity Decimal @default(1) @db.Decimal(20, 4)
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([bundleId, productId], name: "unique_bundle_product")
+  @@index([bundleId], name: "idx_bundle_items_bundle")
+  @@index([productId], name: "idx_bundle_items_product")
+  @@map("bundle_items")
+}
+
+// =============================================================================
+// INVOICES TABLE (Day 10)
+// =============================================================================
+model Invoice {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Company
+  companyId String  @map("company_id") @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Customer
+  customerId String   @map("customer_id") @db.Uuid
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  // Identity
+  invoiceNumber   String  @map("invoice_number") @db.VarChar(50)
+  referenceNumber String? @map("reference_number") @db.VarChar(100)
+
+  // Status
+  status InvoiceStatus @default(DRAFT)
+
+  // Dates
+  invoiceDate DateTime  @map("invoice_date") @db.Date
+  dueDate     DateTime? @map("due_date") @db.Date
+
+  // Payment Terms
+  paymentTerms String? @map("payment_terms") @db.VarChar(50)
+
+  // Amounts
+  subtotal      Decimal @default(0) @db.Decimal(20, 4)
+  discountType  DiscountType? @map("discount_type")
+  discountValue Decimal?      @map("discount_value") @db.Decimal(20, 4)
+  discountAmount Decimal @default(0) @map("discount_amount") @db.Decimal(20, 4)
+  taxAmount     Decimal @default(0) @map("tax_amount") @db.Decimal(20, 4)
+  totalAmount   Decimal @default(0) @map("total_amount") @db.Decimal(20, 4)
+  amountPaid    Decimal @default(0) @map("amount_paid") @db.Decimal(20, 4)
+  amountDue     Decimal @default(0) @map("amount_due") @db.Decimal(20, 4)
+
+  // Deposit Account
+  depositAccountId String?  @map("deposit_account_id") @db.Uuid
+  depositAccount   Account? @relation("InvoiceDepositAccount", fields: [depositAccountId], references: [id], onDelete: SetNull)
+
+  // Content
+  notes              String? @db.Text
+  termsAndConditions String? @map("terms_and_conditions") @db.Text
+
+  // Lifecycle timestamps
+  sentAt    DateTime? @map("sent_at") @db.Timestamptz(6)
+  paidAt    DateTime? @map("paid_at") @db.Timestamptz(6)
+  voidedAt  DateTime? @map("voided_at") @db.Timestamptz(6)
+  voidReason String?  @map("void_reason") @db.Text
+
+  // Status
+  isActive Boolean @default(true) @map("is_active")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  lineItems InvoiceLineItem[]
+  payments  InvoicePayment[]
+
+  @@unique([companyId, invoiceNumber], name: "unique_company_invoice_number")
+  @@index([companyId], name: "idx_invoices_company")
+  @@index([companyId, status], name: "idx_invoices_status")
+  @@index([companyId, customerId], name: "idx_invoices_customer")
+  @@index([companyId, invoiceDate], name: "idx_invoices_date")
+  @@index([companyId, dueDate], name: "idx_invoices_due_date")
+  @@index([companyId, isActive], name: "idx_invoices_active")
+  @@map("invoices")
+}
+
+// =============================================================================
+// INVOICE LINE ITEMS TABLE (Day 10)
+// =============================================================================
+model InvoiceLineItem {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Invoice
+  invoiceId String  @map("invoice_id") @db.Uuid
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  // Product (optional — allows custom line items)
+  productId String?  @map("product_id") @db.Uuid
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  // Line Item Details
+  description     String  @db.Text
+  quantity        Decimal @default(1) @db.Decimal(20, 4)
+  unitPrice       Decimal @default(0) @map("unit_price") @db.Decimal(20, 4)
+  discountPercent Decimal @default(0) @map("discount_percent") @db.Decimal(5, 2)
+  taxPercent      Decimal @default(0) @map("tax_percent") @db.Decimal(5, 2)
+  amount          Decimal @default(0) @db.Decimal(20, 4)
+
+  // Display Order
+  sortOrder Int @default(0) @map("sort_order")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([invoiceId], name: "idx_invoice_line_items_invoice")
+  @@index([productId], name: "idx_invoice_line_items_product")
+  @@map("invoice_line_items")
+}
+
+// =============================================================================
+// INVOICE PAYMENTS TABLE (Day 10)
+// =============================================================================
+model InvoicePayment {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Invoice
+  invoiceId String  @map("invoice_id") @db.Uuid
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  // Payment Details
+  amount        Decimal       @db.Decimal(20, 4)
+  paymentDate   DateTime      @map("payment_date") @db.Date
+  paymentMethod PaymentMethod @default(OTHER) @map("payment_method")
+
+  // Reference
+  referenceNumber String? @map("reference_number") @db.VarChar(100)
+  notes           String? @db.Text
+
+  // Deposit Account
+  depositAccountId String?  @map("deposit_account_id") @db.Uuid
+  depositAccount   Account? @relation("PaymentDepositAccount", fields: [depositAccountId], references: [id], onDelete: SetNull)
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([invoiceId], name: "idx_invoice_payments_invoice")
+  @@index([paymentDate], name: "idx_invoice_payments_date")
+  @@map("invoice_payments")
+}
+
+// =============================================================================
+// BILLS TABLE (Day 11 - Accounts Payable)
+// =============================================================================
+model Bill {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Company
+  companyId String  @map("company_id") @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Vendor
+  vendorId String @map("vendor_id") @db.Uuid
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+
+  // Identity
+  billNumber          String  @map("bill_number") @db.VarChar(50)
+  vendorInvoiceNumber String? @map("vendor_invoice_number") @db.VarChar(100)
+  referenceNumber     String? @map("reference_number") @db.VarChar(100)
+
+  // Status
+  status BillStatus @default(DRAFT)
+
+  // Dates
+  billDate DateTime  @map("bill_date") @db.Date
+  dueDate  DateTime? @map("due_date") @db.Date
+
+  // Payment Terms
+  paymentTerms String? @map("payment_terms") @db.VarChar(50)
+
+  // Amounts
+  subtotal       Decimal       @default(0) @db.Decimal(20, 4)
+  discountType   DiscountType? @map("discount_type")
+  discountValue  Decimal?      @map("discount_value") @db.Decimal(20, 4)
+  discountAmount Decimal       @default(0) @map("discount_amount") @db.Decimal(20, 4)
+  taxAmount      Decimal       @default(0) @map("tax_amount") @db.Decimal(20, 4)
+  totalAmount    Decimal       @default(0) @map("total_amount") @db.Decimal(20, 4)
+  amountPaid     Decimal       @default(0) @map("amount_paid") @db.Decimal(20, 4)
+  amountDue      Decimal       @default(0) @map("amount_due") @db.Decimal(20, 4)
+
+  // Payment Account (bank account FROM which payments are made)
+  paymentAccountId String?  @map("payment_account_id") @db.Uuid
+  paymentAccount   Account? @relation("BillPaymentAccount", fields: [paymentAccountId], references: [id], onDelete: SetNull)
+
+  // Content
+  notes String? @db.Text
+  memo  String? @db.Text
+
+  // Lifecycle timestamps
+  receivedAt DateTime? @map("received_at") @db.Timestamptz(6)
+  paidAt     DateTime? @map("paid_at") @db.Timestamptz(6)
+  voidedAt   DateTime? @map("voided_at") @db.Timestamptz(6)
+  voidReason String?   @map("void_reason") @db.Text
+
+  // Status
+  isActive Boolean @default(true) @map("is_active")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  lineItems BillLineItem[]
+  payments  BillPayment[]
+
+  @@unique([companyId, billNumber], name: "unique_company_bill_number")
+  @@index([companyId], name: "idx_bills_company")
+  @@index([companyId, status], name: "idx_bills_status")
+  @@index([companyId, vendorId], name: "idx_bills_vendor")
+  @@index([companyId, billDate], name: "idx_bills_date")
+  @@index([companyId, dueDate], name: "idx_bills_due_date")
+  @@index([companyId, isActive], name: "idx_bills_active")
+  @@map("bills")
+}
+
+// =============================================================================
+// BILL LINE ITEMS TABLE (Day 11)
+// =============================================================================
+model BillLineItem {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Bill
+  billId String @map("bill_id") @db.Uuid
+  bill   Bill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  // Product (optional — allows custom line items)
+  productId String?  @map("product_id") @db.Uuid
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  // Expense Account (which expense account to charge)
+  expenseAccountId String?  @map("expense_account_id") @db.Uuid
+  expenseAccount   Account? @relation("BillLineExpenseAccount", fields: [expenseAccountId], references: [id], onDelete: SetNull)
+
+  // Line Item Details
+  description     String  @db.Text
+  quantity        Decimal @default(1) @db.Decimal(20, 4)
+  unitPrice       Decimal @default(0) @map("unit_price") @db.Decimal(20, 4)
+  discountPercent Decimal @default(0) @map("discount_percent") @db.Decimal(5, 2)
+  taxPercent      Decimal @default(0) @map("tax_percent") @db.Decimal(5, 2)
+  amount          Decimal @default(0) @db.Decimal(20, 4)
+
+  // Display Order
+  sortOrder Int @default(0) @map("sort_order")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([billId], name: "idx_bill_line_items_bill")
+  @@index([productId], name: "idx_bill_line_items_product")
+  @@index([expenseAccountId], name: "idx_bill_line_items_expense_account")
+  @@map("bill_line_items")
+}
+
+// =============================================================================
+// BILL PAYMENTS TABLE (Day 11)
+// =============================================================================
+model BillPayment {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Bill
+  billId String @map("bill_id") @db.Uuid
+  bill   Bill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  // Payment Details
+  amount        Decimal       @db.Decimal(20, 4)
+  paymentDate   DateTime      @map("payment_date") @db.Date
+  paymentMethod PaymentMethod @default(OTHER) @map("payment_method")
+
+  // Reference
+  referenceNumber String? @map("reference_number") @db.VarChar(100)
+  notes           String? @db.Text
+
+  // Payment Account (bank/cash account FROM which the payment is made)
+  paymentAccountId String?  @map("payment_account_id") @db.Uuid
+  paymentAccount   Account? @relation("BillPaymentDepositAccount", fields: [paymentAccountId], references: [id], onDelete: SetNull)
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([billId], name: "idx_bill_payments_bill")
+  @@index([paymentDate], name: "idx_bill_payments_date")
+  @@map("bill_payments")
+}

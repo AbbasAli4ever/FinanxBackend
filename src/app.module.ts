@@ -1,0 +1,42 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { DatabaseModule } from './database/database.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { UsersModule } from './modules/users/users.module';
+import { RolesModule } from './modules/roles/roles.module';
+import { EmailModule } from './modules/email/email.module';
+import { AccountsModule } from './modules/accounts/accounts.module';
+import { CustomersModule } from './modules/customers/customers.module';
+import { VendorsModule } from './modules/vendors/vendors.module';
+import { CategoriesModule } from './modules/categories/categories.module';
+import { ProductsModule } from './modules/products/products.module';
+import { InvoicesModule } from './modules/invoices/invoices.module';
+import { BillsModule } from './modules/bills/bills.module';
+import { validate } from './config/env.validation';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: '.env',
+      validate,
+    }),
+    DatabaseModule,
+    EmailModule,
+    AuthModule,
+    UsersModule,
+    RolesModule,
+    AccountsModule,
+    CustomersModule,
+    VendorsModule,
+    CategoriesModule,
+    ProductsModule,
+    InvoicesModule,
+    BillsModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}

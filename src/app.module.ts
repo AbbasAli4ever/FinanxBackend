@@ -14,6 +14,8 @@ import { CategoriesModule } from './modules/categories/categories.module';
 import { ProductsModule } from './modules/products/products.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { BillsModule } from './modules/bills/bills.module';
+import { ExpensesModule } from './modules/expenses/expenses.module';
+import { JournalEntriesModule } from './modules/journal-entries/journal-entries.module';
 import { validate } from './config/env.validation';
 
 @Module({
@@ -35,6 +37,8 @@ import { validate } from './config/env.validation';
     ProductsModule,
     InvoicesModule,
     BillsModule,
+    ExpensesModule,
+    JournalEntriesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

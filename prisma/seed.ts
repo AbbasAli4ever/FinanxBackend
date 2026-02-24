@@ -241,6 +241,22 @@ async function main() {
       requiredFeature: 'expenses',
       displayOrder: 43,
     },
+    {
+      code: 'expense:approve',
+      name: 'Approve Expenses',
+      description: 'Approve or reject submitted expenses',
+      category: 'expenses',
+      requiredFeature: 'expenses',
+      displayOrder: 44,
+    },
+    {
+      code: 'expense:void',
+      name: 'Void Expenses',
+      description: 'Void approved or paid expenses',
+      category: 'expenses',
+      requiredFeature: 'expenses',
+      displayOrder: 45,
+    },
 
     // BILLS
     {
@@ -324,6 +340,48 @@ async function main() {
       category: 'accounting',
       requiredFeature: null,
       displayOrder: 58,
+    },
+
+    // JOURNAL ENTRIES
+    {
+      code: 'journal:view',
+      name: 'View Journal Entries',
+      description: 'View journal entries list and details',
+      category: 'accounting',
+      requiredFeature: null,
+      displayOrder: 65,
+    },
+    {
+      code: 'journal:create',
+      name: 'Create Journal Entries',
+      description: 'Create new journal entries',
+      category: 'accounting',
+      requiredFeature: null,
+      displayOrder: 66,
+    },
+    {
+      code: 'journal:edit',
+      name: 'Edit Journal Entries',
+      description: 'Edit draft journal entries',
+      category: 'accounting',
+      requiredFeature: null,
+      displayOrder: 67,
+    },
+    {
+      code: 'journal:post',
+      name: 'Post Journal Entries',
+      description: 'Post and void journal entries (updates account balances)',
+      category: 'accounting',
+      requiredFeature: null,
+      displayOrder: 68,
+    },
+    {
+      code: 'journal:delete',
+      name: 'Delete Journal Entries',
+      description: 'Delete draft journal entries',
+      category: 'accounting',
+      requiredFeature: null,
+      displayOrder: 69,
     },
 
     // BANKING
@@ -686,6 +744,7 @@ async function main() {
     'expense:view',
     'expense:create',
     'expense:edit',
+    'expense:approve',
     'bill:view',
     'bill:create',
     'bill:edit',

@@ -46,6 +46,39 @@ enum PaymentMethod {
   OTHER
 }
 
+enum ExpenseStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  PAID
+  REIMBURSED
+  VOID
+}
+
+enum RecurringFrequency {
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum JournalEntryStatus {
+  DRAFT
+  POSTED
+  VOID
+}
+
+enum JournalEntryType {
+  STANDARD
+  ADJUSTING
+  CLOSING
+  REVERSING
+  RECURRING
+}
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -111,6 +144,8 @@ model Company {
   products        Product[]
   invoices        Invoice[]
   bills           Bill[]
+  expenses        Expense[]
+  journalEntries  JournalEntry[]
 
   @@index([isActive], name: "idx_companies_active")
   @@map("companies")
@@ -174,6 +209,14 @@ model User {
   refreshTokens        RefreshToken[]
   invitationsSent      UserInvitation[] @relation("InvitedBy")
   invitationsAccepted  UserInvitation[] @relation("AcceptedInvitations")
+
+  // Expense Relations
+  expensesCreated  Expense[] @relation("ExpenseCreatedBy")
+  expensesApproved Expense[] @relation("ExpenseApprovedBy")
+
+  // Journal Entry Relations
+  journalEntriesCreated JournalEntry[] @relation("JournalEntryCreatedBy")
+  journalEntriesPosted  JournalEntry[] @relation("JournalEntryPostedBy")
 
   @@unique([companyId, email], name: "unique_company_email")
   @@index([companyId], name: "idx_users_company")
@@ -409,6 +452,14 @@ model Account {
   billLineExpenseAccounts    BillLineItem[]  @relation("BillLineExpenseAccount")
   billPaymentDepositAccounts BillPayment[]   @relation("BillPaymentDepositAccount")
 
+  // Expense Relations
+  expenseAccounts        Expense[]         @relation("ExpenseAccount")
+  expensePaymentAccounts Expense[]         @relation("ExpensePaymentAccount")
+  expenseLineAccounts    ExpenseLineItem[] @relation("ExpenseLineExpenseAccount")
+
+  // Journal Entry Relations
+  journalEntryLines JournalEntryLine[]
+
   @@unique([companyId, accountNumber], name: "unique_company_account_number")
   @@unique([companyId, name, parentAccountId], name: "unique_company_account_name")
   @@index([companyId], name: "idx_accounts_company")
@@ -487,6 +538,9 @@ model Customer {
   // Invoice Relations
   invoices Invoice[]
 
+  // Expense Relations
+  billableExpenses Expense[]
+
   @@unique([companyId, displayName], name: "unique_company_customer_display_name")
   @@unique([companyId, email], name: "unique_company_customer_email")
   @@index([companyId], name: "idx_customers_company")
@@ -563,6 +617,9 @@ model Vendor {
   // Bill Relations
   bills Bill[]
 
+  // Expense Relations
+  expenses Expense[]
+
   @@unique([companyId, displayName], name: "unique_company_vendor_display_name")
   @@unique([companyId, email], name: "unique_company_vendor_email")
   @@index([companyId], name: "idx_vendors_company")
@@ -602,6 +659,7 @@ model Category {
 
   // Relations
   products Product[]
+  expenses Expense[]
 
   @@unique([companyId, name, parentId], name: "unique_company_category_name")
   @@index([companyId], name: "idx_categories_company")
@@ -1033,4 +1091,269 @@ model BillPayment {
   @@index([billId], name: "idx_bill_payments_bill")
   @@index([paymentDate], name: "idx_bill_payments_date")
   @@map("bill_payments")
+}
+
+// =============================================================================
+// EXPENSES TABLE (Day 12 - Expense Tracking)
+// =============================================================================
+model Expense {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Company
+  companyId String  @map("company_id") @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Identity
+  expenseNumber   String  @map("expense_number") @db.VarChar(50)
+  referenceNumber String? @map("reference_number") @db.VarChar(100)
+  description     String? @db.Text
+  notes           String? @db.Text
+
+  // Status
+  status ExpenseStatus @default(DRAFT)
+
+  // Date
+  expenseDate DateTime @map("expense_date") @db.Date
+
+  // Vendor (optional — not all expenses have a vendor, e.g., mileage)
+  vendorId String? @map("vendor_id") @db.Uuid
+  vendor   Vendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+
+  // Category (optional — links to existing Category model)
+  categoryId String?   @map("category_id") @db.Uuid
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  // Expense Account (required — which Chart of Accounts expense account)
+  expenseAccountId String  @map("expense_account_id") @db.Uuid
+  expenseAccount   Account @relation("ExpenseAccount", fields: [expenseAccountId], references: [id], onDelete: Restrict)
+
+  // Payment Account (optional — bank/credit card account that paid)
+  paymentAccountId String?  @map("payment_account_id") @db.Uuid
+  paymentAccount   Account? @relation("ExpensePaymentAccount", fields: [paymentAccountId], references: [id], onDelete: SetNull)
+
+  // Payment Method
+  paymentMethod PaymentMethod? @map("payment_method")
+
+  // Amounts
+  amount      Decimal @default(0) @db.Decimal(20, 4)
+  taxPercent  Decimal @default(0) @map("tax_percent") @db.Decimal(5, 2)
+  taxAmount   Decimal @default(0) @map("tax_amount") @db.Decimal(20, 4)
+  totalAmount Decimal @default(0) @map("total_amount") @db.Decimal(20, 4)
+
+  // Tax Deductibility
+  isTaxDeductible Boolean @default(false) @map("is_tax_deductible")
+
+  // Billable Expense
+  isBillable         Boolean   @default(false) @map("is_billable")
+  billableCustomerId String?   @map("billable_customer_id") @db.Uuid
+  billableCustomer   Customer? @relation(fields: [billableCustomerId], references: [id], onDelete: SetNull)
+  markupPercent      Decimal?  @map("markup_percent") @db.Decimal(5, 2)
+  markedUpAmount     Decimal?  @map("marked_up_amount") @db.Decimal(20, 4)
+
+  // Reimbursable
+  isReimbursable   Boolean   @default(false) @map("is_reimbursable")
+  reimbursedAt     DateTime? @map("reimbursed_at") @db.Timestamptz(6)
+  reimbursedAmount Decimal?  @map("reimbursed_amount") @db.Decimal(20, 4)
+
+  // Mileage Tracking
+  isMileage      Boolean  @default(false) @map("is_mileage")
+  mileageDistance Decimal? @map("mileage_distance") @db.Decimal(10, 2)
+  mileageRate    Decimal? @map("mileage_rate") @db.Decimal(10, 4)
+
+  // Receipt
+  receiptUrl      String? @map("receipt_url") @db.VarChar(500)
+  receiptFileName String? @map("receipt_file_name") @db.VarChar(255)
+
+  // Recurring
+  isRecurring        Boolean             @default(false) @map("is_recurring")
+  recurringFrequency RecurringFrequency? @map("recurring_frequency")
+  nextRecurringDate  DateTime?           @map("next_recurring_date") @db.Date
+  recurringEndDate   DateTime?           @map("recurring_end_date") @db.Date
+
+  // Approval Workflow
+  submittedAt     DateTime? @map("submitted_at") @db.Timestamptz(6)
+  approvedAt      DateTime? @map("approved_at") @db.Timestamptz(6)
+  approvedById    String?   @map("approved_by_id") @db.Uuid
+  approvedBy      User?     @relation("ExpenseApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  rejectedAt      DateTime? @map("rejected_at") @db.Timestamptz(6)
+  rejectionReason String?   @map("rejection_reason") @db.Text
+
+  // Terminal lifecycle
+  paidAt     DateTime? @map("paid_at") @db.Timestamptz(6)
+  voidedAt   DateTime? @map("voided_at") @db.Timestamptz(6)
+  voidReason String?   @map("void_reason") @db.Text
+
+  // Created by (the user who created the expense)
+  createdById String @map("created_by_id") @db.Uuid
+  createdBy   User   @relation("ExpenseCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  // Status
+  isActive Boolean @default(true) @map("is_active")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  lineItems ExpenseLineItem[]
+
+  @@unique([companyId, expenseNumber], name: "unique_company_expense_number")
+  @@index([companyId], name: "idx_expenses_company")
+  @@index([companyId, status], name: "idx_expenses_status")
+  @@index([companyId, vendorId], name: "idx_expenses_vendor")
+  @@index([companyId, expenseDate], name: "idx_expenses_date")
+  @@index([companyId, isActive], name: "idx_expenses_active")
+  @@index([companyId, isBillable], name: "idx_expenses_billable")
+  @@index([companyId, isReimbursable], name: "idx_expenses_reimbursable")
+  @@index([companyId, isRecurring, nextRecurringDate], name: "idx_expenses_recurring")
+  @@index([createdById], name: "idx_expenses_created_by")
+  @@map("expenses")
+}
+
+// =============================================================================
+// EXPENSE LINE ITEMS TABLE (Day 12 - Split Expenses)
+// =============================================================================
+model ExpenseLineItem {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Expense
+  expenseId String  @map("expense_id") @db.Uuid
+  expense   Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  // Expense Account (which expense account to charge for this split)
+  expenseAccountId String  @map("expense_account_id") @db.Uuid
+  expenseAccount   Account @relation("ExpenseLineExpenseAccount", fields: [expenseAccountId], references: [id], onDelete: Restrict)
+
+  // Details
+  description String  @db.Text
+  amount      Decimal @default(0) @db.Decimal(20, 4)
+  taxPercent  Decimal @default(0) @map("tax_percent") @db.Decimal(5, 2)
+  taxAmount   Decimal @default(0) @map("tax_amount") @db.Decimal(20, 4)
+
+  // Display Order
+  sortOrder Int @default(0) @map("sort_order")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([expenseId], name: "idx_expense_line_items_expense")
+  @@index([expenseAccountId], name: "idx_expense_line_items_account")
+  @@map("expense_line_items")
+}
+
+// =============================================================================
+// JOURNAL ENTRIES TABLE (Day 13 - Double-Entry Bookkeeping)
+// =============================================================================
+model JournalEntry {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Company
+  companyId String  @map("company_id") @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Identity
+  entryNumber     String  @map("entry_number") @db.VarChar(50)
+  referenceNumber String? @map("reference_number") @db.VarChar(100)
+  description     String? @db.Text
+  notes           String? @db.Text
+
+  // Type & Status
+  entryType JournalEntryType   @default(STANDARD) @map("entry_type")
+  status    JournalEntryStatus @default(DRAFT)
+
+  // Date
+  entryDate DateTime @map("entry_date") @db.Date
+
+  // Totals (must be equal when posting)
+  totalDebit  Decimal @default(0) @map("total_debit") @db.Decimal(20, 4)
+  totalCredit Decimal @default(0) @map("total_credit") @db.Decimal(20, 4)
+
+  // Recurring
+  isRecurring        Boolean             @default(false) @map("is_recurring")
+  recurringFrequency RecurringFrequency? @map("recurring_frequency")
+  nextRecurringDate  DateTime?           @map("next_recurring_date") @db.Date
+  recurringEndDate   DateTime?           @map("recurring_end_date") @db.Date
+
+  // Auto-Reversing
+  isAutoReversing Boolean   @default(false) @map("is_auto_reversing")
+  reversalDate    DateTime? @map("reversal_date") @db.Date
+
+  // Reversal Linking (self-relation)
+  reversedFromId String?        @map("reversed_from_id") @db.Uuid
+  reversedFrom   JournalEntry?  @relation("JournalEntryReversal", fields: [reversedFromId], references: [id], onDelete: SetNull)
+  reversals      JournalEntry[] @relation("JournalEntryReversal")
+
+  // Source Linking (optional reference to invoice/bill/expense)
+  sourceType String? @map("source_type") @db.VarChar(50)
+  sourceId   String? @map("source_id") @db.Uuid
+
+  // Posting
+  postedAt   DateTime? @map("posted_at") @db.Timestamptz(6)
+  postedById String?   @map("posted_by_id") @db.Uuid
+  postedBy   User?     @relation("JournalEntryPostedBy", fields: [postedById], references: [id], onDelete: SetNull)
+
+  // Void
+  voidedAt   DateTime? @map("voided_at") @db.Timestamptz(6)
+  voidReason String?   @map("void_reason") @db.Text
+
+  // Created by
+  createdById String @map("created_by_id") @db.Uuid
+  createdBy   User   @relation("JournalEntryCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  lines JournalEntryLine[]
+
+  @@unique([companyId, entryNumber], name: "unique_company_entry_number")
+  @@index([companyId], name: "idx_journal_entries_company")
+  @@index([companyId, status], name: "idx_journal_entries_status")
+  @@index([companyId, entryType], name: "idx_journal_entries_type")
+  @@index([companyId, entryDate], name: "idx_journal_entries_date")
+  @@index([companyId, isRecurring, nextRecurringDate], name: "idx_journal_entries_recurring")
+  @@index([reversedFromId], name: "idx_journal_entries_reversed_from")
+  @@index([sourceType, sourceId], name: "idx_journal_entries_source")
+  @@index([createdById], name: "idx_journal_entries_created_by")
+  @@map("journal_entries")
+}
+
+// =============================================================================
+// JOURNAL ENTRY LINES TABLE (Day 13 - Debit/Credit Lines)
+// =============================================================================
+model JournalEntryLine {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Journal Entry
+  journalEntryId String       @map("journal_entry_id") @db.Uuid
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+
+  // Account
+  accountId String  @map("account_id") @db.Uuid
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  // Debit/Credit (one must be > 0, the other must be 0)
+  debit  Decimal @default(0) @db.Decimal(20, 4)
+  credit Decimal @default(0) @db.Decimal(20, 4)
+
+  // Description (optional per-line description)
+  description String? @db.Text
+
+  // Contact Reference (optional: link line to customer/vendor for sub-ledger)
+  contactType String? @map("contact_type") @db.VarChar(20) // "CUSTOMER" or "VENDOR"
+  contactId   String? @map("contact_id") @db.Uuid
+
+  // Display Order
+  sortOrder Int @default(0) @map("sort_order")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([journalEntryId], name: "idx_journal_entry_lines_entry")
+  @@index([accountId], name: "idx_journal_entry_lines_account")
+  @@index([contactType, contactId], name: "idx_journal_entry_lines_contact")
+  @@map("journal_entry_lines")
 }

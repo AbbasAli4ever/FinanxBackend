@@ -16,6 +16,10 @@ import { InvoicesModule } from './modules/invoices/invoices.module';
 import { BillsModule } from './modules/bills/bills.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { JournalEntriesModule } from './modules/journal-entries/journal-entries.module';
+import { ReportsModule } from './modules/reports/reports.module';
+import { CreditNotesModule } from './modules/credit-notes/credit-notes.module';
+import { DebitNotesModule } from './modules/debit-notes/debit-notes.module';
+import { EstimatesModule } from './modules/estimates/estimates.module';
 import { validate } from './config/env.validation';
 
 @Module({
@@ -39,6 +43,10 @@ import { validate } from './config/env.validation';
     BillsModule,
     ExpensesModule,
     JournalEntriesModule,
+    ReportsModule,
+    CreditNotesModule,
+    DebitNotesModule,
+    EstimatesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

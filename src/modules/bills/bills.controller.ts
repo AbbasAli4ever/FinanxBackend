@@ -138,7 +138,7 @@ export class BillsController {
     @Param('id') id: string,
     @CurrentUser() user: any,
   ): Promise<ApiResponseDto> {
-    const bill = await this.billsService.receive(id, user.companyId);
+    const bill = await this.billsService.receive(id, user.companyId, user.id);
     return {
       success: true,
       message: `Bill ${bill.billNumber} has been received`,
@@ -156,6 +156,7 @@ export class BillsController {
     const bill = await this.billsService.voidBill(
       id,
       user.companyId,
+      user.id,
       body?.reason,
     );
     return {
@@ -176,6 +177,7 @@ export class BillsController {
       id,
       dto,
       user.companyId,
+      user.id,
     );
     return {
       success: true,

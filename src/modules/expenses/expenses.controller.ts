@@ -212,6 +212,7 @@ export class ExpensesController {
     const data = await this.expensesService.markAsPaid(
       id,
       user.companyId,
+      user.id,
       body,
     );
     const verb = data.status === 'REIMBURSED' ? 'reimbursed' : 'paid';

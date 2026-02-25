@@ -11,6 +11,7 @@ import { QueryBillsDto } from './dto/query-bills.dto';
 import { RecordBillPaymentDto } from './dto/record-bill-payment.dto';
 import { PAYMENT_TERMS, PaymentTermCode } from '../invoices/constants/payment-terms.constant';
 import { BILL_STATUS_INFO } from './constants/bill-statuses.constant';
+import { createAutoJournalEntry } from '../shared/auto-journal-entry.helper';
 
 @Injectable()
 export class BillsService {
@@ -579,7 +580,7 @@ export class BillsService {
   // =========================================================================
   // RECEIVE BILL (DRAFT → RECEIVED)
   // =========================================================================
-  async receive(id: string, companyId: string) {
+  async receive(id: string, companyId: string, userId: string) {
     const bill = await this.prisma.bill.findFirst({
       where: { id, companyId, isActive: true },
       include: {
@@ -654,7 +655,7 @@ export class BillsService {
       });
 
       // Update bill status
-      return tx.bill.update({
+      const receivedBill = await tx.bill.update({
         where: { id },
         data: {
           status: 'RECEIVED',
@@ -663,6 +664,54 @@ export class BillsService {
         },
         include: this.getFullInclude(),
       });
+
+      // Auto-JE: Debit expense accounts from line items, Credit Accounts Payable
+      // Build debit lines from each line item's expenseAccountId (or fallback to COGS)
+      const debitLines: Array<{ accountId?: string; accountType?: string; debit: number; credit: number; description?: string }> = [];
+
+      for (const lineItem of bill.lineItems) {
+        const lineAmount = Number(lineItem.amount);
+        if (lineAmount <= 0) continue;
+
+        if (lineItem.expenseAccountId) {
+          // Use the specific expense account from the line item
+          debitLines.push({
+            accountId: lineItem.expenseAccountId,
+            debit: lineAmount,
+            credit: 0,
+            description: `${lineItem.description} - ${bill.billNumber}`,
+          });
+        } else {
+          // Fallback to COGS for lines without an expense account
+          debitLines.push({
+            accountType: 'Cost of Goods Sold',
+            debit: lineAmount,
+            credit: 0,
+            description: `${lineItem.description} - ${bill.billNumber}`,
+          });
+        }
+      }
+
+      // Add the AP credit line for the full amount
+      await createAutoJournalEntry(tx, {
+        companyId,
+        userId,
+        entryDate: new Date(),
+        description: `Bill ${bill.billNumber} received`,
+        sourceType: 'BILL',
+        sourceId: bill.id,
+        lines: [
+          ...debitLines,
+          {
+            accountType: 'Accounts Payable',
+            debit: 0,
+            credit: Number(bill.totalAmount),
+            description: `AP - ${bill.billNumber}`,
+          },
+        ],
+      });
+
+      return receivedBill;
     });
 
     return this.formatBill(updated);
@@ -671,7 +720,7 @@ export class BillsService {
   // =========================================================================
   // VOID BILL
   // =========================================================================
-  async voidBill(id: string, companyId: string, reason?: string) {
+  async voidBill(id: string, companyId: string, userId: string, reason?: string) {
     const bill = await this.prisma.bill.findFirst({
       where: { id, companyId, isActive: true },
       include: {
@@ -736,7 +785,7 @@ export class BillsService {
       });
 
       // Update bill status
-      return tx.bill.update({
+      const voidedBill = await tx.bill.update({
         where: { id },
         data: {
           status: 'VOID',
@@ -745,6 +794,56 @@ export class BillsService {
         },
         include: this.getFullInclude(),
       });
+
+      // Auto-JE reversal: reverse ONLY the remaining unpaid AP
+      // Payment JEs already reduced AP by amountPaid, so we only reverse amountDue
+      const remainingAmount = Number(bill.amountDue);
+      if (remainingAmount > 0) {
+        // Build reversal debit lines from line items (proportional to remaining)
+        const ratio = remainingAmount / Number(bill.totalAmount);
+        const reversalDebitLines: Array<{ accountId?: string; accountType?: string; debit: number; credit: number; description?: string }> = [];
+
+        for (const lineItem of bill.lineItems) {
+          const lineAmount = Math.round(Number(lineItem.amount) * ratio * 10000) / 10000;
+          if (lineAmount <= 0) continue;
+
+          if (lineItem.expenseAccountId) {
+            reversalDebitLines.push({
+              accountId: lineItem.expenseAccountId,
+              debit: 0,
+              credit: lineAmount,
+              description: `Reversal ${lineItem.description} - ${bill.billNumber}`,
+            });
+          } else {
+            reversalDebitLines.push({
+              accountType: 'Cost of Goods Sold',
+              debit: 0,
+              credit: lineAmount,
+              description: `COGS reversal - ${bill.billNumber}`,
+            });
+          }
+        }
+
+        await createAutoJournalEntry(tx, {
+          companyId,
+          userId,
+          entryDate: new Date(),
+          description: `Bill ${bill.billNumber} voided`,
+          sourceType: 'BILL',
+          sourceId: bill.id,
+          lines: [
+            {
+              accountType: 'Accounts Payable',
+              debit: remainingAmount,
+              credit: 0,
+              description: `AP reversal - ${bill.billNumber}`,
+            },
+            ...reversalDebitLines,
+          ],
+        });
+      }
+
+      return voidedBill;
     });
 
     return this.formatBill(updated);
@@ -757,6 +856,7 @@ export class BillsService {
     id: string,
     dto: RecordBillPaymentDto,
     companyId: string,
+    userId: string,
   ) {
     const bill = await this.prisma.bill.findFirst({
       where: { id, companyId, isActive: true },
@@ -818,7 +918,7 @@ export class BillsService {
       });
 
       // Update bill amounts and status
-      return tx.bill.update({
+      const paidBill = await tx.bill.update({
         where: { id },
         data: {
           amountPaid: newAmountPaid,
@@ -828,6 +928,33 @@ export class BillsService {
         },
         include: this.getFullInclude(),
       });
+
+      // Auto-JE: Debit Accounts Payable, Credit Bank (specific payment account)
+      const paymentAcctId = dto.paymentAccountId || bill.paymentAccountId;
+      await createAutoJournalEntry(tx, {
+        companyId,
+        userId,
+        entryDate: new Date(dto.paymentDate),
+        description: `Payment made - Bill ${bill.billNumber}`,
+        sourceType: 'BILL',
+        sourceId: bill.id,
+        lines: [
+          {
+            accountType: 'Accounts Payable',
+            debit: dto.amount,
+            credit: 0,
+            description: `AP cleared - ${bill.billNumber}`,
+          },
+          {
+            ...(paymentAcctId ? { accountId: paymentAcctId } : { accountType: 'Bank' }),
+            debit: 0,
+            credit: dto.amount,
+            description: `Payment - ${bill.billNumber}`,
+          },
+        ],
+      });
+
+      return paidBill;
     });
 
     return this.formatBill(updated);

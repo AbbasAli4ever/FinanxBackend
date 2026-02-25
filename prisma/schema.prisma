@@ -79,6 +79,33 @@ enum JournalEntryType {
   RECURRING
 }
 
+enum CreditNoteStatus {
+  DRAFT
+  OPEN
+  PARTIALLY_APPLIED
+  APPLIED
+  VOID
+}
+
+enum DebitNoteStatus {
+  DRAFT
+  OPEN
+  PARTIALLY_APPLIED
+  APPLIED
+  VOID
+}
+
+enum EstimateStatus {
+  DRAFT
+  SENT
+  VIEWED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CONVERTED
+  VOID
+}
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -146,6 +173,9 @@ model Company {
   bills           Bill[]
   expenses        Expense[]
   journalEntries  JournalEntry[]
+  creditNotes     CreditNote[]
+  debitNotes      DebitNote[]
+  estimates       Estimate[]
 
   @@index([isActive], name: "idx_companies_active")
   @@map("companies")
@@ -460,6 +490,17 @@ model Account {
   // Journal Entry Relations
   journalEntryLines JournalEntryLine[]
 
+  // Credit Note Relations
+  creditNoteRefundAccounts CreditNote[]         @relation("CreditNoteRefundAccount")
+  creditNoteLineAccounts   CreditNoteLineItem[] @relation("CreditNoteLineAccount")
+
+  // Debit Note Relations
+  debitNoteRefundAccounts      DebitNote[]           @relation("DebitNoteRefundAccount")
+  debitNoteLineExpenseAccounts DebitNoteLineItem[]   @relation("DebitNoteLineExpenseAccount")
+
+  // Estimate Relations
+  estimateDepositAccounts Estimate[] @relation("EstimateDepositAccount")
+
   @@unique([companyId, accountNumber], name: "unique_company_account_number")
   @@unique([companyId, name, parentAccountId], name: "unique_company_account_name")
   @@index([companyId], name: "idx_accounts_company")
@@ -537,6 +578,12 @@ model Customer {
 
   // Invoice Relations
   invoices Invoice[]
+
+  // Credit Note Relations
+  creditNotes CreditNote[]
+
+  // Estimate Relations
+  estimates Estimate[]
 
   // Expense Relations
   billableExpenses Expense[]
@@ -616,6 +663,9 @@ model Vendor {
 
   // Bill Relations
   bills Bill[]
+
+  // Debit Note Relations
+  debitNotes DebitNote[]
 
   // Expense Relations
   expenses Expense[]
@@ -772,6 +822,15 @@ model Product {
   // Bill Relations
   billLineItems BillLineItem[]
 
+  // Credit Note Relations
+  creditNoteLineItems CreditNoteLineItem[]
+
+  // Debit Note Relations
+  debitNoteLineItems DebitNoteLineItem[]
+
+  // Estimate Relations
+  estimateLineItems EstimateLineItem[]
+
   @@unique([companyId, sku], name: "unique_company_product_sku")
   @@unique([companyId, name], name: "unique_company_product_name")
   @@index([companyId], name: "idx_products_company")
@@ -871,6 +930,13 @@ model Invoice {
   // Relations
   lineItems InvoiceLineItem[]
   payments  InvoicePayment[]
+
+  // Credit Note Relations
+  creditNotes            CreditNote[]
+  creditNoteApplications CreditNoteApplication[]
+
+  // Estimate Relations (invoices created from estimates)
+  sourceEstimate Estimate? @relation("EstimateConvertedInvoice")
 
   @@unique([companyId, invoiceNumber], name: "unique_company_invoice_number")
   @@index([companyId], name: "idx_invoices_company")
@@ -1011,6 +1077,10 @@ model Bill {
   // Relations
   lineItems BillLineItem[]
   payments  BillPayment[]
+
+  // Debit Note Relations
+  debitNotes            DebitNote[]
+  debitNoteApplications DebitNoteApplication[]
 
   @@unique([companyId, billNumber], name: "unique_company_bill_number")
   @@index([companyId], name: "idx_bills_company")
@@ -1356,4 +1426,398 @@ model JournalEntryLine {
   @@index([accountId], name: "idx_journal_entry_lines_account")
   @@index([contactType, contactId], name: "idx_journal_entry_lines_contact")
   @@map("journal_entry_lines")
+}
+
+// =============================================================================
+// CREDIT NOTES TABLE (Day 15 - Customer Refunds/Adjustments)
+// =============================================================================
+model CreditNote {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Company
+  companyId String  @map("company_id") @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Customer
+  customerId String   @map("customer_id") @db.Uuid
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  // Optional reference to original invoice
+  invoiceId String?  @map("invoice_id") @db.Uuid
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  // Identity
+  creditNoteNumber String  @map("credit_note_number") @db.VarChar(50)
+  referenceNumber  String? @map("reference_number") @db.VarChar(100)
+
+  // Status
+  status CreditNoteStatus @default(DRAFT)
+
+  // Date
+  creditNoteDate DateTime @map("credit_note_date") @db.Date
+
+  // Amounts
+  subtotal        Decimal       @default(0) @db.Decimal(20, 4)
+  discountType    DiscountType? @map("discount_type")
+  discountValue   Decimal?      @map("discount_value") @db.Decimal(20, 4)
+  discountAmount  Decimal       @default(0) @map("discount_amount") @db.Decimal(20, 4)
+  taxAmount       Decimal       @default(0) @map("tax_amount") @db.Decimal(20, 4)
+  totalAmount     Decimal       @default(0) @map("total_amount") @db.Decimal(20, 4)
+  amountApplied   Decimal       @default(0) @map("amount_applied") @db.Decimal(20, 4)
+  amountRefunded  Decimal       @default(0) @map("amount_refunded") @db.Decimal(20, 4)
+  remainingCredit Decimal       @default(0) @map("remaining_credit") @db.Decimal(20, 4)
+
+  // Refund Account (bank account for direct refunds)
+  refundAccountId String?  @map("refund_account_id") @db.Uuid
+  refundAccount   Account? @relation("CreditNoteRefundAccount", fields: [refundAccountId], references: [id], onDelete: SetNull)
+
+  // Content
+  reason String? @db.Text
+  notes  String? @db.Text
+
+  // Lifecycle timestamps
+  openedAt   DateTime? @map("opened_at") @db.Timestamptz(6)
+  voidedAt   DateTime? @map("voided_at") @db.Timestamptz(6)
+  voidReason String?   @map("void_reason") @db.Text
+
+  // Status
+  isActive Boolean @default(true) @map("is_active")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  lineItems    CreditNoteLineItem[]
+  applications CreditNoteApplication[]
+
+  @@unique([companyId, creditNoteNumber], name: "unique_company_credit_note_number")
+  @@index([companyId], name: "idx_credit_notes_company")
+  @@index([companyId, status], name: "idx_credit_notes_status")
+  @@index([companyId, customerId], name: "idx_credit_notes_customer")
+  @@index([companyId, creditNoteDate], name: "idx_credit_notes_date")
+  @@index([companyId, isActive], name: "idx_credit_notes_active")
+  @@index([invoiceId], name: "idx_credit_notes_invoice")
+  @@map("credit_notes")
+}
+
+// =============================================================================
+// CREDIT NOTE LINE ITEMS TABLE (Day 15)
+// =============================================================================
+model CreditNoteLineItem {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Credit Note
+  creditNoteId String     @map("credit_note_id") @db.Uuid
+  creditNote   CreditNote @relation(fields: [creditNoteId], references: [id], onDelete: Cascade)
+
+  // Product (optional)
+  productId String?  @map("product_id") @db.Uuid
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  // Income account to reverse (optional — defaults to 'Income' account type)
+  accountId String?  @map("account_id") @db.Uuid
+  account   Account? @relation("CreditNoteLineAccount", fields: [accountId], references: [id], onDelete: SetNull)
+
+  // Line Item Details
+  description     String  @db.Text
+  quantity        Decimal @default(1) @db.Decimal(20, 4)
+  unitPrice       Decimal @default(0) @map("unit_price") @db.Decimal(20, 4)
+  discountPercent Decimal @default(0) @map("discount_percent") @db.Decimal(5, 2)
+  taxPercent      Decimal @default(0) @map("tax_percent") @db.Decimal(5, 2)
+  amount          Decimal @default(0) @db.Decimal(20, 4)
+
+  // Display Order
+  sortOrder Int @default(0) @map("sort_order")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([creditNoteId], name: "idx_credit_note_line_items_credit_note")
+  @@index([productId], name: "idx_credit_note_line_items_product")
+  @@map("credit_note_line_items")
+}
+
+// =============================================================================
+// CREDIT NOTE APPLICATIONS TABLE (Day 15 - Junction: CreditNote <-> Invoice)
+// =============================================================================
+model CreditNoteApplication {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Credit Note
+  creditNoteId String     @map("credit_note_id") @db.Uuid
+  creditNote   CreditNote @relation(fields: [creditNoteId], references: [id], onDelete: Cascade)
+
+  // Invoice (the invoice being paid/offset by this credit)
+  invoiceId String  @map("invoice_id") @db.Uuid
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  // Amount applied
+  amount Decimal @db.Decimal(20, 4)
+
+  // Timestamp
+  appliedAt DateTime @default(now()) @map("applied_at") @db.Timestamptz(6)
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([creditNoteId], name: "idx_cn_applications_credit_note")
+  @@index([invoiceId], name: "idx_cn_applications_invoice")
+  @@map("credit_note_applications")
+}
+
+// =============================================================================
+// DEBIT NOTES TABLE (Day 15 - Vendor Returns/Adjustments)
+// =============================================================================
+model DebitNote {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Company
+  companyId String  @map("company_id") @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Vendor
+  vendorId String @map("vendor_id") @db.Uuid
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+
+  // Optional reference to original bill
+  billId String? @map("bill_id") @db.Uuid
+  bill   Bill?   @relation(fields: [billId], references: [id], onDelete: SetNull)
+
+  // Identity
+  debitNoteNumber String  @map("debit_note_number") @db.VarChar(50)
+  referenceNumber String? @map("reference_number") @db.VarChar(100)
+
+  // Status
+  status DebitNoteStatus @default(DRAFT)
+
+  // Date
+  debitNoteDate DateTime @map("debit_note_date") @db.Date
+
+  // Amounts
+  subtotal        Decimal       @default(0) @db.Decimal(20, 4)
+  discountType    DiscountType? @map("discount_type")
+  discountValue   Decimal?      @map("discount_value") @db.Decimal(20, 4)
+  discountAmount  Decimal       @default(0) @map("discount_amount") @db.Decimal(20, 4)
+  taxAmount       Decimal       @default(0) @map("tax_amount") @db.Decimal(20, 4)
+  totalAmount     Decimal       @default(0) @map("total_amount") @db.Decimal(20, 4)
+  amountApplied   Decimal       @default(0) @map("amount_applied") @db.Decimal(20, 4)
+  amountRefunded  Decimal       @default(0) @map("amount_refunded") @db.Decimal(20, 4)
+  remainingCredit Decimal       @default(0) @map("remaining_credit") @db.Decimal(20, 4)
+
+  // Refund Account (bank account for receiving vendor refund)
+  refundAccountId String?  @map("refund_account_id") @db.Uuid
+  refundAccount   Account? @relation("DebitNoteRefundAccount", fields: [refundAccountId], references: [id], onDelete: SetNull)
+
+  // Content
+  reason String? @db.Text
+  notes  String? @db.Text
+
+  // Lifecycle timestamps
+  openedAt   DateTime? @map("opened_at") @db.Timestamptz(6)
+  voidedAt   DateTime? @map("voided_at") @db.Timestamptz(6)
+  voidReason String?   @map("void_reason") @db.Text
+
+  // Status
+  isActive Boolean @default(true) @map("is_active")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  lineItems    DebitNoteLineItem[]
+  applications DebitNoteApplication[]
+
+  @@unique([companyId, debitNoteNumber], name: "unique_company_debit_note_number")
+  @@index([companyId], name: "idx_debit_notes_company")
+  @@index([companyId, status], name: "idx_debit_notes_status")
+  @@index([companyId, vendorId], name: "idx_debit_notes_vendor")
+  @@index([companyId, debitNoteDate], name: "idx_debit_notes_date")
+  @@index([companyId, isActive], name: "idx_debit_notes_active")
+  @@index([billId], name: "idx_debit_notes_bill")
+  @@map("debit_notes")
+}
+
+// =============================================================================
+// DEBIT NOTE LINE ITEMS TABLE (Day 15)
+// =============================================================================
+model DebitNoteLineItem {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Debit Note
+  debitNoteId String    @map("debit_note_id") @db.Uuid
+  debitNote   DebitNote @relation(fields: [debitNoteId], references: [id], onDelete: Cascade)
+
+  // Product (optional)
+  productId String?  @map("product_id") @db.Uuid
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  // Expense account to reverse (optional — defaults to 'Cost of Goods Sold')
+  expenseAccountId String?  @map("expense_account_id") @db.Uuid
+  expenseAccount   Account? @relation("DebitNoteLineExpenseAccount", fields: [expenseAccountId], references: [id], onDelete: SetNull)
+
+  // Line Item Details
+  description     String  @db.Text
+  quantity        Decimal @default(1) @db.Decimal(20, 4)
+  unitPrice       Decimal @default(0) @map("unit_price") @db.Decimal(20, 4)
+  discountPercent Decimal @default(0) @map("discount_percent") @db.Decimal(5, 2)
+  taxPercent      Decimal @default(0) @map("tax_percent") @db.Decimal(5, 2)
+  amount          Decimal @default(0) @db.Decimal(20, 4)
+
+  // Display Order
+  sortOrder Int @default(0) @map("sort_order")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([debitNoteId], name: "idx_debit_note_line_items_debit_note")
+  @@index([productId], name: "idx_debit_note_line_items_product")
+  @@index([expenseAccountId], name: "idx_debit_note_line_items_expense_account")
+  @@map("debit_note_line_items")
+}
+
+// =============================================================================
+// DEBIT NOTE APPLICATIONS TABLE (Day 15 - Junction: DebitNote <-> Bill)
+// =============================================================================
+model DebitNoteApplication {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Debit Note
+  debitNoteId String    @map("debit_note_id") @db.Uuid
+  debitNote   DebitNote @relation(fields: [debitNoteId], references: [id], onDelete: Cascade)
+
+  // Bill (the bill being offset by this debit note)
+  billId String @map("bill_id") @db.Uuid
+  bill   Bill   @relation(fields: [billId], references: [id], onDelete: Restrict)
+
+  // Amount applied
+  amount Decimal @db.Decimal(20, 4)
+
+  // Timestamp
+  appliedAt DateTime @default(now()) @map("applied_at") @db.Timestamptz(6)
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([debitNoteId], name: "idx_dn_applications_debit_note")
+  @@index([billId], name: "idx_dn_applications_bill")
+  @@map("debit_note_applications")
+}
+
+// =============================================================================
+// ESTIMATES TABLE (Day 16 - Sales Quotes/Proposals)
+// =============================================================================
+model Estimate {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Company
+  companyId String  @map("company_id") @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Customer
+  customerId String   @map("customer_id") @db.Uuid
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  // Identity
+  estimateNumber  String  @map("estimate_number") @db.VarChar(50)
+  referenceNumber String? @map("reference_number") @db.VarChar(100)
+
+  // Status
+  status EstimateStatus @default(DRAFT)
+
+  // Dates
+  estimateDate   DateTime  @map("estimate_date") @db.Date
+  expirationDate DateTime? @map("expiration_date") @db.Date
+
+  // Payment Terms (suggested terms if converted to invoice)
+  paymentTerms String? @map("payment_terms") @db.VarChar(50)
+
+  // Amounts
+  subtotal       Decimal       @default(0) @db.Decimal(20, 4)
+  discountType   DiscountType? @map("discount_type")
+  discountValue  Decimal?      @map("discount_value") @db.Decimal(20, 4)
+  discountAmount Decimal       @default(0) @map("discount_amount") @db.Decimal(20, 4)
+  taxAmount      Decimal       @default(0) @map("tax_amount") @db.Decimal(20, 4)
+  totalAmount    Decimal       @default(0) @map("total_amount") @db.Decimal(20, 4)
+
+  // Deposit Account (suggested for resulting invoice)
+  depositAccountId String?  @map("deposit_account_id") @db.Uuid
+  depositAccount   Account? @relation("EstimateDepositAccount", fields: [depositAccountId], references: [id], onDelete: SetNull)
+
+  // Converted Invoice
+  convertedInvoiceId String?  @unique @map("converted_invoice_id") @db.Uuid
+  convertedInvoice   Invoice? @relation("EstimateConvertedInvoice", fields: [convertedInvoiceId], references: [id], onDelete: SetNull)
+
+  // Content
+  notes              String? @db.Text
+  termsAndConditions String? @map("terms_and_conditions") @db.Text
+  customerMessage    String? @map("customer_message") @db.Text
+
+  // Lifecycle timestamps
+  sentAt       DateTime? @map("sent_at") @db.Timestamptz(6)
+  viewedAt     DateTime? @map("viewed_at") @db.Timestamptz(6)
+  acceptedAt   DateTime? @map("accepted_at") @db.Timestamptz(6)
+  rejectedAt   DateTime? @map("rejected_at") @db.Timestamptz(6)
+  expiredAt    DateTime? @map("expired_at") @db.Timestamptz(6)
+  convertedAt  DateTime? @map("converted_at") @db.Timestamptz(6)
+  voidedAt     DateTime? @map("voided_at") @db.Timestamptz(6)
+  voidReason   String?   @map("void_reason") @db.Text
+  rejectionReason String? @map("rejection_reason") @db.Text
+
+  // Status
+  isActive Boolean @default(true) @map("is_active")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  lineItems EstimateLineItem[]
+
+  @@unique([companyId, estimateNumber], name: "unique_company_estimate_number")
+  @@index([companyId], name: "idx_estimates_company")
+  @@index([companyId, status], name: "idx_estimates_status")
+  @@index([companyId, customerId], name: "idx_estimates_customer")
+  @@index([companyId, estimateDate], name: "idx_estimates_date")
+  @@index([companyId, expirationDate], name: "idx_estimates_expiration")
+  @@index([companyId, isActive], name: "idx_estimates_active")
+  @@index([convertedInvoiceId], name: "idx_estimates_converted_invoice")
+  @@map("estimates")
+}
+
+// =============================================================================
+// ESTIMATE LINE ITEMS TABLE (Day 16)
+// =============================================================================
+model EstimateLineItem {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Estimate
+  estimateId String   @map("estimate_id") @db.Uuid
+  estimate   Estimate @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+
+  // Product (optional — allows custom line items)
+  productId String?  @map("product_id") @db.Uuid
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  // Line Item Details
+  description     String  @db.Text
+  quantity        Decimal @default(1) @db.Decimal(20, 4)
+  unitPrice       Decimal @default(0) @map("unit_price") @db.Decimal(20, 4)
+  discountPercent Decimal @default(0) @map("discount_percent") @db.Decimal(5, 2)
+  taxPercent      Decimal @default(0) @map("tax_percent") @db.Decimal(5, 2)
+  amount          Decimal @default(0) @db.Decimal(20, 4)
+
+  // Display Order
+  sortOrder Int @default(0) @map("sort_order")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([estimateId], name: "idx_estimate_line_items_estimate")
+  @@index([productId], name: "idx_estimate_line_items_product")
+  @@map("estimate_line_items")
 }

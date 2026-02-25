@@ -174,6 +174,98 @@ async function main() {
       displayOrder: 25,
     },
 
+    // CREDIT NOTES (Day 15)
+    {
+      code: 'credit-note:view',
+      name: 'View Credit Notes',
+      description: 'View credit note list and details',
+      category: 'sales',
+      requiredFeature: 'invoicing',
+      displayOrder: 26,
+    },
+    {
+      code: 'credit-note:create',
+      name: 'Create Credit Notes',
+      description: 'Create new credit notes for customers',
+      category: 'sales',
+      requiredFeature: 'invoicing',
+      displayOrder: 27,
+    },
+    {
+      code: 'credit-note:edit',
+      name: 'Edit Credit Notes',
+      description: 'Edit credit notes and apply/refund them',
+      category: 'sales',
+      requiredFeature: 'invoicing',
+      displayOrder: 28,
+    },
+    {
+      code: 'credit-note:delete',
+      name: 'Delete Credit Notes',
+      description: 'Delete or void credit notes',
+      category: 'sales',
+      requiredFeature: 'invoicing',
+      displayOrder: 29,
+    },
+
+    // ESTIMATES (Day 16)
+    {
+      code: 'estimate:view',
+      name: 'View Estimates',
+      description: 'View estimate/quote list and details',
+      category: 'sales',
+      requiredFeature: 'invoicing',
+      displayOrder: 14,
+    },
+    {
+      code: 'estimate:create',
+      name: 'Create Estimates',
+      description: 'Create new estimates and quotes',
+      category: 'sales',
+      requiredFeature: 'invoicing',
+      displayOrder: 15,
+    },
+    {
+      code: 'estimate:edit',
+      name: 'Edit Estimates',
+      description: 'Edit draft estimates',
+      category: 'sales',
+      requiredFeature: 'invoicing',
+      displayOrder: 16,
+    },
+    {
+      code: 'estimate:delete',
+      name: 'Delete Estimates',
+      description: 'Delete draft estimates',
+      category: 'sales',
+      requiredFeature: 'invoicing',
+      displayOrder: 17,
+    },
+    {
+      code: 'estimate:send',
+      name: 'Send Estimates',
+      description: 'Send estimates to customers',
+      category: 'sales',
+      requiredFeature: 'invoicing',
+      displayOrder: 18,
+    },
+    {
+      code: 'estimate:convert',
+      name: 'Convert Estimates',
+      description: 'Convert accepted estimates to invoices',
+      category: 'sales',
+      requiredFeature: 'invoicing',
+      displayOrder: 19,
+    },
+    {
+      code: 'estimate:void',
+      name: 'Void Estimates',
+      description: 'Void sent or accepted estimates',
+      category: 'sales',
+      requiredFeature: 'invoicing',
+      displayOrder: 19,
+    },
+
     // VENDORS
     {
       code: 'vendor:view',
@@ -306,6 +398,40 @@ async function main() {
       category: 'expenses',
       requiredFeature: 'bills',
       displayOrder: 55,
+    },
+
+    // DEBIT NOTES (Day 15)
+    {
+      code: 'debit-note:view',
+      name: 'View Debit Notes',
+      description: 'View debit note list and details',
+      category: 'expenses',
+      requiredFeature: 'bills',
+      displayOrder: 56,
+    },
+    {
+      code: 'debit-note:create',
+      name: 'Create Debit Notes',
+      description: 'Create new debit notes for vendors',
+      category: 'expenses',
+      requiredFeature: 'bills',
+      displayOrder: 57,
+    },
+    {
+      code: 'debit-note:edit',
+      name: 'Edit Debit Notes',
+      description: 'Edit debit notes and apply/refund them',
+      category: 'expenses',
+      requiredFeature: 'bills',
+      displayOrder: 58,
+    },
+    {
+      code: 'debit-note:delete',
+      name: 'Delete Debit Notes',
+      description: 'Delete or void debit notes',
+      category: 'expenses',
+      requiredFeature: 'bills',
+      displayOrder: 59,
     },
 
     // CHART OF ACCOUNTS
@@ -766,6 +892,17 @@ async function main() {
     'category:create',
     'category:edit',
     'project:view',
+    'credit-note:view',
+    'credit-note:create',
+    'credit-note:edit',
+    'debit-note:view',
+    'debit-note:create',
+    'debit-note:edit',
+    'estimate:view',
+    'estimate:create',
+    'estimate:edit',
+    'estimate:send',
+    'estimate:convert',
   ];
 
   const standardPermissions = await prisma.permission.findMany({
@@ -801,6 +938,8 @@ async function main() {
     'product:view',
     'category:view',
     'report:view_basic',
+    'credit-note:view',
+    'estimate:view',
   ];
 
   const limitedPermissions = await prisma.permission.findMany({
@@ -840,6 +979,9 @@ async function main() {
     'category:view',
     'project:view',
     'time:view',
+    'credit-note:view',
+    'debit-note:view',
+    'estimate:view',
   ];
 
   const reportsOnlyPermissions = await prisma.permission.findMany({

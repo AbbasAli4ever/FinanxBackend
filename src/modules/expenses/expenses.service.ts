@@ -10,6 +10,7 @@ import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { QueryExpensesDto } from './dto/query-expenses.dto';
 import { EXPENSE_STATUS_INFO } from './constants/expense-statuses.constant';
 import { RECURRING_FREQUENCY_INFO } from './constants/recurring-frequencies.constant';
+import { createAutoJournalEntry } from '../shared/auto-journal-entry.helper';
 
 @Injectable()
 export class ExpensesService {
@@ -722,6 +723,7 @@ export class ExpensesService {
   async markAsPaid(
     id: string,
     companyId: string,
+    userId: string,
     body?: { paymentMethod?: string; paymentAccountId?: string },
   ) {
     const expense = await this.prisma.expense.findFirst({
@@ -836,6 +838,51 @@ export class ExpensesService {
           });
         }
       }
+
+      // Auto-JE: Debit the specific expense account, Credit the specific payment account
+      // If the expense has line items with individual accounts, create per-line debit entries
+      const expenseDebitLines: Array<{ accountId?: string; accountType?: string; debit: number; credit: number; description?: string }> = [];
+
+      if (expense.lineItems && expense.lineItems.length > 0) {
+        // Split expense: each line item has its own expenseAccountId
+        for (const lineItem of expense.lineItems) {
+          const lineAmount = Number(lineItem.amount) + Number(lineItem.taxAmount || 0);
+          if (lineAmount <= 0) continue;
+          expenseDebitLines.push({
+            accountId: lineItem.expenseAccountId,
+            debit: lineAmount,
+            credit: 0,
+            description: `${lineItem.description || expense.expenseNumber}`,
+          });
+        }
+      } else {
+        // Single expense: use the expense's own expenseAccountId
+        expenseDebitLines.push({
+          accountId: expense.expenseAccountId,
+          debit: Number(expense.totalAmount),
+          credit: 0,
+          description: `Expense - ${expense.expenseNumber}`,
+        });
+      }
+
+      const paymentAcctId = body?.paymentAccountId || expense.paymentAccountId;
+      await createAutoJournalEntry(tx, {
+        companyId,
+        userId,
+        entryDate: new Date(),
+        description: `Expense ${expense.expenseNumber} paid`,
+        sourceType: 'EXPENSE',
+        sourceId: expense.id,
+        lines: [
+          ...expenseDebitLines,
+          {
+            ...(paymentAcctId ? { accountId: paymentAcctId } : { accountType: 'Bank' }),
+            debit: 0,
+            credit: Number(expense.totalAmount),
+            description: `Payment - ${expense.expenseNumber}`,
+          },
+        ],
+      });
 
       return result;
     });

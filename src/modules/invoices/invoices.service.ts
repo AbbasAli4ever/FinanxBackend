@@ -12,6 +12,7 @@ import { RecordPaymentDto } from './dto/record-payment.dto';
 import { PAYMENT_TERMS, PaymentTermCode } from './constants/payment-terms.constant';
 import { INVOICE_STATUS_INFO } from './constants/invoice-statuses.constant';
 import { Decimal } from '@prisma/client/runtime/library';
+import { createAutoJournalEntry } from '../shared/auto-journal-entry.helper';
 
 @Injectable()
 export class InvoicesService {
@@ -543,7 +544,7 @@ export class InvoicesService {
   // =========================================================================
   // SEND INVOICE (DRAFT → SENT)
   // =========================================================================
-  async send(id: string, companyId: string) {
+  async send(id: string, companyId: string, userId: string) {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id, companyId, isActive: true },
       include: {
@@ -621,7 +622,7 @@ export class InvoicesService {
       }
 
       // Update invoice status
-      return tx.invoice.update({
+      const sentInvoice = await tx.invoice.update({
         where: { id },
         data: {
           status: 'SENT',
@@ -630,6 +631,32 @@ export class InvoicesService {
         },
         include: this.getFullInclude(),
       });
+
+      // Auto-JE: Debit Accounts Receivable, Credit Income
+      await createAutoJournalEntry(tx, {
+        companyId,
+        userId,
+        entryDate: new Date(),
+        description: `Invoice ${invoice.invoiceNumber} sent`,
+        sourceType: 'INVOICE',
+        sourceId: invoice.id,
+        lines: [
+          {
+            accountType: 'Accounts Receivable',
+            debit: Number(invoice.totalAmount),
+            credit: 0,
+            description: `AR - ${invoice.invoiceNumber}`,
+          },
+          {
+            accountType: 'Income',
+            debit: 0,
+            credit: Number(invoice.totalAmount),
+            description: `Revenue - ${invoice.invoiceNumber}`,
+          },
+        ],
+      });
+
+      return sentInvoice;
     });
 
     return this.formatInvoice(updated);
@@ -638,7 +665,7 @@ export class InvoicesService {
   // =========================================================================
   // VOID INVOICE
   // =========================================================================
-  async voidInvoice(id: string, companyId: string, reason?: string) {
+  async voidInvoice(id: string, companyId: string, userId: string, reason?: string) {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id, companyId, isActive: true },
       include: {
@@ -695,7 +722,7 @@ export class InvoicesService {
       }
 
       // Update invoice status
-      return tx.invoice.update({
+      const voidedInvoice = await tx.invoice.update({
         where: { id },
         data: {
           status: 'VOID',
@@ -704,6 +731,36 @@ export class InvoicesService {
         },
         include: this.getFullInclude(),
       });
+
+      // Auto-JE reversal: reverse ONLY the remaining unpaid portion
+      // Payment JEs already reduced AR by amountPaid, so we only reverse amountDue
+      const remainingAmount = Number(invoice.amountDue);
+      if (remainingAmount > 0) {
+        await createAutoJournalEntry(tx, {
+          companyId,
+          userId,
+          entryDate: new Date(),
+          description: `Invoice ${invoice.invoiceNumber} voided`,
+          sourceType: 'INVOICE',
+          sourceId: invoice.id,
+          lines: [
+            {
+              accountType: 'Income',
+              debit: remainingAmount,
+              credit: 0,
+              description: `Reversal - ${invoice.invoiceNumber}`,
+            },
+            {
+              accountType: 'Accounts Receivable',
+              debit: 0,
+              credit: remainingAmount,
+              description: `AR reversal - ${invoice.invoiceNumber}`,
+            },
+          ],
+        });
+      }
+
+      return voidedInvoice;
     });
 
     return this.formatInvoice(updated);
@@ -716,6 +773,7 @@ export class InvoicesService {
     id: string,
     dto: RecordPaymentDto,
     companyId: string,
+    userId: string,
   ) {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id, companyId, isActive: true },
@@ -769,7 +827,7 @@ export class InvoicesService {
       });
 
       // Update invoice amounts and status
-      return tx.invoice.update({
+      const paidInvoice = await tx.invoice.update({
         where: { id },
         data: {
           amountPaid: newAmountPaid,
@@ -779,6 +837,33 @@ export class InvoicesService {
         },
         include: this.getFullInclude(),
       });
+
+      // Auto-JE: Debit Bank (specific deposit account), Credit Accounts Receivable
+      const depositAcctId = dto.depositAccountId || invoice.depositAccountId;
+      await createAutoJournalEntry(tx, {
+        companyId,
+        userId,
+        entryDate: new Date(dto.paymentDate),
+        description: `Payment received - Invoice ${invoice.invoiceNumber}`,
+        sourceType: 'INVOICE',
+        sourceId: invoice.id,
+        lines: [
+          {
+            ...(depositAcctId ? { accountId: depositAcctId } : { accountType: 'Bank' }),
+            debit: dto.amount,
+            credit: 0,
+            description: `Payment - ${invoice.invoiceNumber}`,
+          },
+          {
+            accountType: 'Accounts Receivable',
+            debit: 0,
+            credit: dto.amount,
+            description: `AR cleared - ${invoice.invoiceNumber}`,
+          },
+        ],
+      });
+
+      return paidInvoice;
     });
 
     return this.formatInvoice(updated);

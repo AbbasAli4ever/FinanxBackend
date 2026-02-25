@@ -142,7 +142,7 @@ export class InvoicesController {
     @Param('id') id: string,
     @CurrentUser() user: any,
   ): Promise<ApiResponseDto> {
-    const invoice = await this.invoicesService.send(id, user.companyId);
+    const invoice = await this.invoicesService.send(id, user.companyId, user.id);
     return {
       success: true,
       message: `Invoice ${invoice.invoiceNumber} has been sent`,
@@ -160,6 +160,7 @@ export class InvoicesController {
     const invoice = await this.invoicesService.voidInvoice(
       id,
       user.companyId,
+      user.id,
       body?.reason,
     );
     return {
@@ -180,6 +181,7 @@ export class InvoicesController {
       id,
       dto,
       user.companyId,
+      user.id,
     );
     return {
       success: true,

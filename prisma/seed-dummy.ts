@@ -1415,7 +1415,138 @@ async function main() {
   console.log('   ✅ 5 estimates created (1 DRAFT, 1 SENT, 1 ACCEPTED, 1 EXPIRED, 1 CONVERTED)');
 
   // ============================================================================
-  // 16. UPDATE ACCOUNT BALANCES
+  // 16. PURCHASE ORDERS (5)
+  // ============================================================================
+  console.log('📦 Creating purchase orders...');
+
+  // PO-0001: Dell Technologies — CLOSED (4 laptops + warranty, linked to bill2)
+  const po1Sub = 1800 * 4 + 500;
+  const po1Tax = po1Sub * 0.18;
+  const po1Total = po1Sub + po1Tax;
+  const po1 = await prisma.purchaseOrder.create({
+    data: {
+      companyId: company.id, vendorId: vend2.id, poNumber: 'PO-0001',
+      referenceNumber: 'REQ-2026-001', status: 'CLOSED',
+      poDate: d('2026-01-20'), expectedDeliveryDate: d('2026-02-05'),
+      paymentTerms: 'Net 45',
+      subtotal: new Prisma.Decimal(po1Sub), taxAmount: new Prisma.Decimal(po1Tax),
+      totalAmount: new Prisma.Decimal(po1Total),
+      shippingAddressLine1: '42, Tech Park, Sector 62',
+      shippingCity: 'Noida', shippingState: 'Uttar Pradesh',
+      shippingPostalCode: '201301', shippingCountry: 'IN',
+      notes: 'Urgent: Developer laptops needed for new hires',
+      vendorMessage: 'Please deliver to reception desk, Tech Park building.',
+      sentAt: new Date('2026-01-20T10:00:00Z'),
+      receivedAt: new Date('2026-02-04T14:00:00Z'),
+      closedAt: new Date('2026-02-05T09:00:00Z'),
+      convertedBillId: bill2.id,
+    },
+  });
+  await prisma.purchaseOrderLineItem.createMany({
+    data: [
+      { purchaseOrderId: po1.id, productId: prod5.id, description: 'Dell XPS 15 Laptop', quantity: new Prisma.Decimal(4), unitPrice: new Prisma.Decimal(1800), expenseAccountId: cogsAcct.id, taxPercent: new Prisma.Decimal(18), amount: new Prisma.Decimal(1800 * 4 * 1.18), quantityReceived: new Prisma.Decimal(4), sortOrder: 0 },
+      { purchaseOrderId: po1.id, description: 'Extended Warranty (3yr) x4', quantity: new Prisma.Decimal(1), unitPrice: new Prisma.Decimal(500), expenseAccountId: cogsAcct.id, taxPercent: new Prisma.Decimal(18), amount: new Prisma.Decimal(500 * 1.18), quantityReceived: new Prisma.Decimal(1), sortOrder: 1 },
+    ],
+  });
+
+  // PO-0002: AWS India — SENT (cloud services, awaiting delivery)
+  const po2Sub = 4000 + 1500;
+  const po2Tax = po2Sub * 0.18;
+  const po2Total = po2Sub + po2Tax;
+  const po2 = await prisma.purchaseOrder.create({
+    data: {
+      companyId: company.id, vendorId: vend1.id, poNumber: 'PO-0002',
+      status: 'SENT',
+      poDate: d('2026-02-15'), expectedDeliveryDate: d('2026-03-15'),
+      paymentTerms: 'Net 30',
+      subtotal: new Prisma.Decimal(po2Sub), taxAmount: new Prisma.Decimal(po2Tax),
+      totalAmount: new Prisma.Decimal(po2Total),
+      notes: 'AWS cloud services for March 2026',
+      sentAt: new Date('2026-02-15T11:00:00Z'),
+    },
+  });
+  await prisma.purchaseOrderLineItem.createMany({
+    data: [
+      { purchaseOrderId: po2.id, description: 'AWS EC2 & RDS Hosting - March', quantity: new Prisma.Decimal(1), unitPrice: new Prisma.Decimal(4000), expenseAccountId: duesExpAcct.id, taxPercent: new Prisma.Decimal(18), amount: new Prisma.Decimal(4000 * 1.18), quantityReceived: new Prisma.Decimal(0), sortOrder: 0 },
+      { purchaseOrderId: po2.id, description: 'AWS CloudWatch & Support Plan - March', quantity: new Prisma.Decimal(1), unitPrice: new Prisma.Decimal(1500), expenseAccountId: duesExpAcct.id, taxPercent: new Prisma.Decimal(18), amount: new Prisma.Decimal(1500 * 1.18), quantityReceived: new Prisma.Decimal(0), sortOrder: 1 },
+    ],
+  });
+
+  // PO-0003: TechMart — PARTIAL (received 2 of 3 standing desks)
+  const po3Sub = 500 * 3 + 800;
+  const po3Tax = po3Sub * 0.18;
+  const po3Total = po3Sub + po3Tax;
+  const po3 = await prisma.purchaseOrder.create({
+    data: {
+      companyId: company.id, vendorId: vend5.id, poNumber: 'PO-0003',
+      status: 'PARTIAL',
+      poDate: d('2026-02-10'), expectedDeliveryDate: d('2026-02-25'),
+      paymentTerms: 'Due on Receipt',
+      subtotal: new Prisma.Decimal(po3Sub), taxAmount: new Prisma.Decimal(po3Tax),
+      totalAmount: new Prisma.Decimal(po3Total),
+      shippingAddressLine1: '42, Tech Park, Sector 62',
+      shippingCity: 'Noida', shippingState: 'Uttar Pradesh',
+      shippingPostalCode: '201301', shippingCountry: 'IN',
+      notes: 'Office furniture and ergonomic equipment order',
+      sentAt: new Date('2026-02-10T09:00:00Z'),
+    },
+  });
+  await prisma.purchaseOrderLineItem.createMany({
+    data: [
+      { purchaseOrderId: po3.id, description: 'Ergonomic Standing Desk', quantity: new Prisma.Decimal(3), unitPrice: new Prisma.Decimal(500), expenseAccountId: officeExpAcct.id, taxPercent: new Prisma.Decimal(18), amount: new Prisma.Decimal(1500 * 1.18), quantityReceived: new Prisma.Decimal(2), sortOrder: 0 },
+      { purchaseOrderId: po3.id, description: 'Herman Miller Office Chair', quantity: new Prisma.Decimal(1), unitPrice: new Prisma.Decimal(800), expenseAccountId: officeExpAcct.id, taxPercent: new Prisma.Decimal(18), amount: new Prisma.Decimal(800 * 1.18), quantityReceived: new Prisma.Decimal(0), sortOrder: 1 },
+    ],
+  });
+
+  // PO-0004: Airtel — RECEIVED (all services delivered, ready to convert)
+  const po4Sub = 900 + 300;
+  const po4Tax = po4Sub * 0.18;
+  const po4Total = po4Sub + po4Tax;
+  const po4 = await prisma.purchaseOrder.create({
+    data: {
+      companyId: company.id, vendorId: vend4.id, poNumber: 'PO-0004',
+      status: 'RECEIVED',
+      poDate: d('2026-02-01'), expectedDeliveryDate: d('2026-02-28'),
+      paymentTerms: 'Net 30',
+      subtotal: new Prisma.Decimal(po4Sub), taxAmount: new Prisma.Decimal(po4Tax),
+      totalAmount: new Prisma.Decimal(po4Total),
+      notes: 'Airtel business internet upgrade for March',
+      sentAt: new Date('2026-02-01T10:00:00Z'),
+      receivedAt: new Date('2026-02-20T16:00:00Z'),
+    },
+  });
+  await prisma.purchaseOrderLineItem.createMany({
+    data: [
+      { purchaseOrderId: po4.id, description: 'Airtel Leased Line Upgrade - 200 Mbps', quantity: new Prisma.Decimal(1), unitPrice: new Prisma.Decimal(900), expenseAccountId: utilExpAcct.id, taxPercent: new Prisma.Decimal(18), amount: new Prisma.Decimal(900 * 1.18), quantityReceived: new Prisma.Decimal(1), sortOrder: 0 },
+      { purchaseOrderId: po4.id, description: 'Airtel Business Phone - 8 lines', quantity: new Prisma.Decimal(1), unitPrice: new Prisma.Decimal(300), expenseAccountId: utilExpAcct.id, taxPercent: new Prisma.Decimal(18), amount: new Prisma.Decimal(300 * 1.18), quantityReceived: new Prisma.Decimal(1), sortOrder: 1 },
+    ],
+  });
+
+  // PO-0005: WeWork — DRAFT (next month rent, pending approval)
+  const po5Sub = 3200;
+  const po5Tax = po5Sub * 0.18;
+  const po5Total = po5Sub + po5Tax;
+  const po5 = await prisma.purchaseOrder.create({
+    data: {
+      companyId: company.id, vendorId: vend3.id, poNumber: 'PO-0005',
+      status: 'DRAFT',
+      poDate: d('2026-02-25'), expectedDeliveryDate: d('2026-03-01'),
+      paymentTerms: 'Net 30',
+      subtotal: new Prisma.Decimal(po5Sub), taxAmount: new Prisma.Decimal(po5Tax),
+      totalAmount: new Prisma.Decimal(po5Total),
+      notes: 'March 2026 coworking space reservation - draft pending approval',
+    },
+  });
+  await prisma.purchaseOrderLineItem.createMany({
+    data: [
+      { purchaseOrderId: po5.id, description: 'WeWork Hot Desk - 10 seats, March 2026', quantity: new Prisma.Decimal(1), unitPrice: new Prisma.Decimal(3200), expenseAccountId: rentExpAcct.id, taxPercent: new Prisma.Decimal(18), amount: new Prisma.Decimal(3200 * 1.18), quantityReceived: new Prisma.Decimal(0), sortOrder: 0 },
+    ],
+  });
+
+  console.log('   ✅ 5 purchase orders created (1 DRAFT, 1 SENT, 1 PARTIAL, 1 RECEIVED, 1 CLOSED)');
+
+  // ============================================================================
+  // 17. UPDATE ACCOUNT BALANCES
   // ============================================================================
   console.log('💰 Updating account balances...');
 
@@ -1498,6 +1629,7 @@ async function main() {
   console.log(`   Credit Notes:   3 (1 APPLIED, 1 OPEN, 1 DRAFT)`);
   console.log(`   Debit Notes:    2 (1 OPEN, 1 DRAFT)`);
   console.log(`   Estimates:      5 (1 DRAFT, 1 SENT, 1 ACCEPTED, 1 EXPIRED, 1 CONVERTED)`);
+  console.log(`   Purchase Orders: 5 (1 DRAFT, 1 SENT, 1 PARTIAL, 1 RECEIVED, 1 CLOSED)`);
   console.log('='.repeat(60));
   console.log(`\n🔐 Login: ceo@finanx.com / punjabi302`);
   console.log(`   Also:  cfo@finanx.com / punjabi302`);

@@ -20,6 +20,7 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { CreditNotesModule } from './modules/credit-notes/credit-notes.module';
 import { DebitNotesModule } from './modules/debit-notes/debit-notes.module';
 import { EstimatesModule } from './modules/estimates/estimates.module';
+import { PurchaseOrdersModule } from './modules/purchase-orders/purchase-orders.module';
 import { validate } from './config/env.validation';
 
 @Module({
@@ -47,6 +48,7 @@ import { validate } from './config/env.validation';
     CreditNotesModule,
     DebitNotesModule,
     EstimatesModule,
+    PurchaseOrdersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

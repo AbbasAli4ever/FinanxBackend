@@ -266,6 +266,72 @@ async function main() {
       displayOrder: 19,
     },
 
+    // PURCHASE ORDERS (Day 17)
+    {
+      code: 'purchase-order:view',
+      name: 'View Purchase Orders',
+      description: 'View purchase order list and details',
+      category: 'expenses',
+      requiredFeature: 'bills',
+      displayOrder: 60,
+    },
+    {
+      code: 'purchase-order:create',
+      name: 'Create Purchase Orders',
+      description: 'Create new purchase orders',
+      category: 'expenses',
+      requiredFeature: 'bills',
+      displayOrder: 61,
+    },
+    {
+      code: 'purchase-order:edit',
+      name: 'Edit Purchase Orders',
+      description: 'Edit draft purchase orders',
+      category: 'expenses',
+      requiredFeature: 'bills',
+      displayOrder: 62,
+    },
+    {
+      code: 'purchase-order:delete',
+      name: 'Delete Purchase Orders',
+      description: 'Delete draft purchase orders',
+      category: 'expenses',
+      requiredFeature: 'bills',
+      displayOrder: 63,
+    },
+    {
+      code: 'purchase-order:send',
+      name: 'Send Purchase Orders',
+      description: 'Send purchase orders to vendors',
+      category: 'expenses',
+      requiredFeature: 'bills',
+      displayOrder: 64,
+    },
+    {
+      code: 'purchase-order:receive',
+      name: 'Receive Purchase Orders',
+      description: 'Record receipt of purchased items',
+      category: 'expenses',
+      requiredFeature: 'bills',
+      displayOrder: 65,
+    },
+    {
+      code: 'purchase-order:convert',
+      name: 'Convert Purchase Orders',
+      description: 'Convert received purchase orders to bills',
+      category: 'expenses',
+      requiredFeature: 'bills',
+      displayOrder: 66,
+    },
+    {
+      code: 'purchase-order:void',
+      name: 'Void Purchase Orders',
+      description: 'Void sent or partially received purchase orders',
+      category: 'expenses',
+      requiredFeature: 'bills',
+      displayOrder: 67,
+    },
+
     // VENDORS
     {
       code: 'vendor:view',
@@ -903,6 +969,12 @@ async function main() {
     'estimate:edit',
     'estimate:send',
     'estimate:convert',
+    'purchase-order:view',
+    'purchase-order:create',
+    'purchase-order:edit',
+    'purchase-order:send',
+    'purchase-order:receive',
+    'purchase-order:convert',
   ];
 
   const standardPermissions = await prisma.permission.findMany({
@@ -940,6 +1012,7 @@ async function main() {
     'report:view_basic',
     'credit-note:view',
     'estimate:view',
+    'purchase-order:view',
   ];
 
   const limitedPermissions = await prisma.permission.findMany({
@@ -982,6 +1055,7 @@ async function main() {
     'credit-note:view',
     'debit-note:view',
     'estimate:view',
+    'purchase-order:view',
   ];
 
   const reportsOnlyPermissions = await prisma.permission.findMany({

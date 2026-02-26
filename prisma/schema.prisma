@@ -106,6 +106,15 @@ enum EstimateStatus {
   VOID
 }
 
+enum PurchaseOrderStatus {
+  DRAFT
+  SENT
+  PARTIAL
+  RECEIVED
+  CLOSED
+  VOID
+}
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -176,6 +185,7 @@ model Company {
   creditNotes     CreditNote[]
   debitNotes      DebitNote[]
   estimates       Estimate[]
+  purchaseOrders  PurchaseOrder[]
 
   @@index([isActive], name: "idx_companies_active")
   @@map("companies")
@@ -501,6 +511,9 @@ model Account {
   // Estimate Relations
   estimateDepositAccounts Estimate[] @relation("EstimateDepositAccount")
 
+  // Purchase Order Relations
+  purchaseOrderLineExpenseAccounts PurchaseOrderLineItem[] @relation("PurchaseOrderLineExpenseAccount")
+
   @@unique([companyId, accountNumber], name: "unique_company_account_number")
   @@unique([companyId, name, parentAccountId], name: "unique_company_account_name")
   @@index([companyId], name: "idx_accounts_company")
@@ -670,6 +683,9 @@ model Vendor {
   // Expense Relations
   expenses Expense[]
 
+  // Purchase Order Relations
+  purchaseOrders PurchaseOrder[]
+
   @@unique([companyId, displayName], name: "unique_company_vendor_display_name")
   @@unique([companyId, email], name: "unique_company_vendor_email")
   @@index([companyId], name: "idx_vendors_company")
@@ -830,6 +846,9 @@ model Product {
 
   // Estimate Relations
   estimateLineItems EstimateLineItem[]
+
+  // Purchase Order Relations
+  purchaseOrderLineItems PurchaseOrderLineItem[]
 
   @@unique([companyId, sku], name: "unique_company_product_sku")
   @@unique([companyId, name], name: "unique_company_product_name")
@@ -1081,6 +1100,9 @@ model Bill {
   // Debit Note Relations
   debitNotes            DebitNote[]
   debitNoteApplications DebitNoteApplication[]
+
+  // Purchase Order Relations
+  sourcePurchaseOrder PurchaseOrder? @relation("PurchaseOrderConvertedBill")
 
   @@unique([companyId, billNumber], name: "unique_company_bill_number")
   @@index([companyId], name: "idx_bills_company")
@@ -1820,4 +1842,127 @@ model EstimateLineItem {
   @@index([estimateId], name: "idx_estimate_line_items_estimate")
   @@index([productId], name: "idx_estimate_line_items_product")
   @@map("estimate_line_items")
+}
+
+// =============================================================================
+// PURCHASE ORDERS TABLE (Day 17 - Procurement)
+// =============================================================================
+model PurchaseOrder {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Company
+  companyId String  @map("company_id") @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Vendor
+  vendorId String @map("vendor_id") @db.Uuid
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+
+  // Identity
+  poNumber        String  @map("po_number") @db.VarChar(50)
+  referenceNumber String? @map("reference_number") @db.VarChar(100)
+
+  // Status
+  status PurchaseOrderStatus @default(DRAFT)
+
+  // Dates
+  poDate               DateTime  @map("po_date") @db.Date
+  expectedDeliveryDate DateTime? @map("expected_delivery_date") @db.Date
+
+  // Payment Terms (for the resulting bill)
+  paymentTerms String? @map("payment_terms") @db.VarChar(50)
+
+  // Amounts
+  subtotal       Decimal             @default(0) @db.Decimal(20, 4)
+  discountType   DiscountType?       @map("discount_type")
+  discountValue  Decimal?            @map("discount_value") @db.Decimal(20, 4)
+  discountAmount Decimal             @default(0) @map("discount_amount") @db.Decimal(20, 4)
+  taxAmount      Decimal             @default(0) @map("tax_amount") @db.Decimal(20, 4)
+  totalAmount    Decimal             @default(0) @map("total_amount") @db.Decimal(20, 4)
+
+  // Shipping Address
+  shippingAddressLine1 String? @map("shipping_address_line1") @db.VarChar(255)
+  shippingAddressLine2 String? @map("shipping_address_line2") @db.VarChar(255)
+  shippingCity         String? @map("shipping_city") @db.VarChar(100)
+  shippingState        String? @map("shipping_state") @db.VarChar(100)
+  shippingPostalCode   String? @map("shipping_postal_code") @db.VarChar(20)
+  shippingCountry      String? @map("shipping_country") @db.VarChar(2)
+
+  // Content
+  notes         String? @db.Text
+  memo          String? @db.Text
+  vendorMessage String? @map("vendor_message") @db.Text
+
+  // Converted Bill
+  convertedBillId String? @unique @map("converted_bill_id") @db.Uuid
+  convertedBill   Bill?   @relation("PurchaseOrderConvertedBill", fields: [convertedBillId], references: [id], onDelete: SetNull)
+
+  // Lifecycle timestamps
+  sentAt     DateTime? @map("sent_at") @db.Timestamptz(6)
+  receivedAt DateTime? @map("received_at") @db.Timestamptz(6)
+  closedAt   DateTime? @map("closed_at") @db.Timestamptz(6)
+  voidedAt   DateTime? @map("voided_at") @db.Timestamptz(6)
+  voidReason String?   @map("void_reason") @db.Text
+
+  // Status
+  isActive Boolean @default(true) @map("is_active")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  lineItems PurchaseOrderLineItem[]
+
+  @@unique([companyId, poNumber], name: "unique_company_po_number")
+  @@index([companyId], name: "idx_purchase_orders_company")
+  @@index([companyId, status], name: "idx_purchase_orders_status")
+  @@index([companyId, vendorId], name: "idx_purchase_orders_vendor")
+  @@index([companyId, poDate], name: "idx_purchase_orders_date")
+  @@index([companyId, expectedDeliveryDate], name: "idx_purchase_orders_delivery")
+  @@index([companyId, isActive], name: "idx_purchase_orders_active")
+  @@index([convertedBillId], name: "idx_purchase_orders_converted_bill")
+  @@map("purchase_orders")
+}
+
+// =============================================================================
+// PURCHASE ORDER LINE ITEMS TABLE (Day 17)
+// =============================================================================
+model PurchaseOrderLineItem {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Purchase Order
+  purchaseOrderId String        @map("purchase_order_id") @db.Uuid
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  // Product (optional — allows custom line items)
+  productId String?  @map("product_id") @db.Uuid
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  // Expense Account (which expense account to charge when converted to bill)
+  expenseAccountId String?  @map("expense_account_id") @db.Uuid
+  expenseAccount   Account? @relation("PurchaseOrderLineExpenseAccount", fields: [expenseAccountId], references: [id], onDelete: SetNull)
+
+  // Line Item Details
+  description     String  @db.Text
+  quantity        Decimal @default(1) @db.Decimal(20, 4)
+  unitPrice       Decimal @default(0) @map("unit_price") @db.Decimal(20, 4)
+  discountPercent Decimal @default(0) @map("discount_percent") @db.Decimal(5, 2)
+  taxPercent      Decimal @default(0) @map("tax_percent") @db.Decimal(5, 2)
+  amount          Decimal @default(0) @db.Decimal(20, 4)
+
+  // Receipt Tracking
+  quantityReceived Decimal @default(0) @map("quantity_received") @db.Decimal(20, 4)
+
+  // Display Order
+  sortOrder Int @default(0) @map("sort_order")
+
+  // Audit
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([purchaseOrderId], name: "idx_po_line_items_purchase_order")
+  @@index([productId], name: "idx_po_line_items_product")
+  @@index([expenseAccountId], name: "idx_po_line_items_expense_account")
+  @@map("purchase_order_line_items")
 }
